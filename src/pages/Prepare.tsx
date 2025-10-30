@@ -107,19 +107,11 @@ export default function Prepare() {
 
     console.log('Creating new field:', newField);
 
-    // If admin is placing a signature, do not show any popup or visible signature field box
-    // — auto-fill the signature, mark completed, and clear the selected tool.
+    // If admin is placing a signature, create the visible empty signature field (do NOT auto-fill).
     if (user?.role === 'admin' && newField.type === 'signature') {
-      const adminSig = `Signed by ${user.email}`;
-      const filledField = { ...newField, completed: true };
-      setFields([...fields, filledField]);
-      setFieldValues((prev: any) => ({
-        ...prev,
-        [filledField.id]: adminSig,
-        [filledField.id + '_type']: 'text',
-        [filledField.id + '_font']: 'Dancing Script'
-      }));
-      // Do not setActiveField and do not open any modal. Clear the tool selection.
+      const placedField = { ...newField, completed: false };
+      setFields([...fields, placedField]);
+      // do not set fieldValues so it remains empty; allow admin to move the box if needed
       setSelectedTool(null);
       return;
     }
@@ -150,25 +142,10 @@ export default function Prepare() {
         }
       }, 0);
     } else {
-      // For signature: admins should be able to sign inline without a popup.
+      // For signature: admins should not auto-fill or see a popup — just select the box.
       if (field.type === 'signature' && user?.role === 'admin') {
-        // Prevent any popup/modal for admin: stop event propagation and explicitly close modal state.
-        try {
-          e.preventDefault();
-          e.stopPropagation();
-        } catch (err) {
-          // ignore
-        }
-        setShowSignatureModal(false);
-        // Auto-fill a simple text signature for admin and mark completed
-        const adminSig = `Signed by ${user.email}`;
-        setFieldValues((prev: any) => ({
-          ...prev,
-          [field.id]: adminSig,
-          [field.id + '_type']: 'text',
-          [field.id + '_font']: 'Dancing Script'
-        }));
-        setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: true } : f));
+        try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
+        // Do not set any field value; keep it uncompleted so signers can sign later.
         setActiveField(null);
         return;
       }
@@ -337,6 +314,8 @@ export default function Prepare() {
         }}
         onSave={handleSaveDate}
       />
+      {/* Admin field popup shown after admin places or clicks a signature field */}
+      
       
       <div className="h-screen flex flex-col bg-gray-50">
         <div className="bg-white border-b border-gray-200 px-6 py-4">
@@ -491,7 +470,7 @@ export default function Prepare() {
 
                           {/* overlay tied to pageRef so positions use the page bounding box */}
                           <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
-                            {fields.filter(field => field.page === currentPage && !(user?.role === 'admin' && field.type === 'signature')).map((field) => (
+                            {fields.filter(field => field.page === currentPage).map((field) => (
                               <div
                                 key={field.id}
                                 style={{
