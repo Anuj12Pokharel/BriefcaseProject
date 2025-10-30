@@ -15,9 +15,10 @@ export type FieldPlacement = {
 };
 
 export interface DocumentContextType {
-  uploadedDoc: string | null;
+  // uploadedDoc can be a URL (string) or a File object (for local PDFs)
+  uploadedDoc: File | string | null;
   docType: DocType;
-  setDocument: (doc: string | null, type: DocType) => void;
+  setDocument: (doc: File | string | null, type: DocType) => void;
   fields: FieldPlacement[];
   setFields: (fields: FieldPlacement[]) => void;
   fieldValues: Record<string, any>;
@@ -33,12 +34,12 @@ export const useDocument = () => {
 };
 
 export const DocumentProvider = ({ children }: { children: ReactNode }) => {
-  const [uploadedDoc, setUploadedDoc] = useState<string | null>(null);
+  const [uploadedDoc, setUploadedDoc] = useState<File | string | null>(null);
   const [docType, setDocType] = useState<DocType>(null);
   const [fields, setFields] = useState<FieldPlacement[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, any>>({});
 
-  const setDocument = (doc: string | null, type: DocType) => {
+  const setDocument = (doc: File | string | null, type: DocType) => {
     setUploadedDoc(doc);
     setDocType(type);
   };

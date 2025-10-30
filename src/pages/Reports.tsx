@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import {
   TrendingUp,
   TrendingDown,
@@ -6,12 +7,16 @@ import {
   CheckCircle,
   Clock,
   Users,
-  Download,
   Filter
 } from 'lucide-react';
 
-export default function Reports() {
-  const [timeRange, setTimeRange] = useState('30');
+function Reports() {
+  const [fileFilter, setFileFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const { user } = useAuth();
+  // Demo: currentStep can be 1 (Upload), 2 (Prepare), 3 (Send)
+  // In real app, this should come from context or router
 
   const stats = [
     {
@@ -99,32 +104,26 @@ export default function Reports() {
     { name: 'Consulting Agreement', count: 24, percentage: 10 }
   ];
 
+  // Filtered activity
+  const filteredActivity = recentActivity.filter((activity) => {
+    const fileMatch = fileFilter === '' || activity.document.toLowerCase().includes(fileFilter.toLowerCase());
+    const dateMatch = dateFilter === '' || activity.date.toLowerCase().includes(dateFilter.toLowerCase());
+    const statusMatch = statusFilter === '' || activity.status === statusFilter;
+    return fileMatch && dateMatch && statusMatch;
+  });
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
+
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Reports & Analytics</h1>
             <p className="text-lg text-gray-600">Track your document performance and activity</p>
           </div>
-          <div className="flex items-center space-x-3">
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value)}
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="365">Last year</option>
-            </select>
-            <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-              <Download className="h-5 w-5" />
-              <span>Export</span>
-            </button>
-          </div>
         </div>
 
+        {/* Reports & Analysis Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {stats.map((stat) => {
             const Icon = stat.icon;
@@ -207,68 +206,109 @@ export default function Reports() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Recent Activity</h2>
-            <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
-              View All
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">
-                    Document
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">
-                    Action
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">User</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">Date</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentActivity.map((activity) => (
-                  <tr key={activity.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-4 px-4">
-                      <div className="flex items-center space-x-3">
-                        <FileText className="h-5 w-5 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-900">
-                          {activity.document}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 text-sm text-gray-600">{activity.action}</td>
-                    <td className="py-4 px-4 text-sm text-gray-600">{activity.user}</td>
-                    <td className="py-4 px-4 text-sm text-gray-600">{activity.date}</td>
-                    <td className="py-4 px-4">
-                      <span
-                        className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          activity.status === 'completed'
-                            ? 'bg-green-100 text-green-700'
-                            : activity.status === 'in-progress'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}
-                      >
-                        {activity.status === 'completed'
-                          ? 'Completed'
-                          : activity.status === 'in-progress'
-                          ? 'In Progress'
-                          : 'Pending'}
-                      </span>
-                    </td>
+        {/* Recent Activity Section (single) */}
+        {user ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 mt-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-gray-900">Recent Activity</h2>
+              <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
+                View All
+              </button>
+            </div>
+            {/* Filters */}
+            <div className="flex flex-wrap gap-4 mb-4">
+              <input
+                type="text"
+                placeholder="Filter by file name"
+                value={fileFilter}
+                onChange={e => setFileFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                style={{ minWidth: 180 }}
+              />
+              <input
+                type="text"
+                placeholder="Filter by date"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                style={{ minWidth: 140 }}
+              />
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                style={{ minWidth: 140 }}
+              >
+                <option value="">All Statuses</option>
+                <option value="completed">Completed</option>
+                <option value="in-progress">In Progress</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">
+                      Document
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">
+                      Action
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">User</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">Date</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900">
+                      Status
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredActivity.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 px-4 text-center text-sm text-gray-500">
+                        No recent activity matches your filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredActivity.map((activity) => (
+                      <tr key={activity.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center space-x-3">
+                            <FileText className="h-5 w-5 text-gray-400" />
+                            <span className="text-sm font-medium text-gray-900">{activity.document}</span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-600">{activity.action}</td>
+                        <td className="py-4 px-4 text-sm text-gray-600">{activity.user}</td>
+                        <td className="py-4 px-4 text-sm text-gray-600">{activity.date}</td>
+                        <td className="py-4 px-4">
+                          <span
+                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                              activity.status === 'completed'
+                                ? 'bg-green-100 text-green-700'
+                                : activity.status === 'in-progress'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-yellow-100 text-yellow-700'
+                            }`}
+                          >
+                            {activity.status === 'completed'
+                              ? 'Completed'
+                              : activity.status === 'in-progress'
+                              ? 'In Progress'
+                              : 'Pending'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );
 }
+
+export default Reports;

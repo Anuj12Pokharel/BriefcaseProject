@@ -5,14 +5,15 @@ import { Document, Page, pdfjs } from 'react-pdf';
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 import { useLocation, useNavigate } from 'react-router-dom';
+import Stepper from '../components/Stepper';
+import type { FieldPlacement } from '../context/DocumentContext';
 import { useDocument } from '../context/DocumentContext';
 import {
   MousePointer2,
   Type,
   Calendar,
   PenTool,
-  User,
-  Mail,
+  
   Save,
   Send,
   ZoomIn,
@@ -22,10 +23,11 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import AddRecipientModal from '../components/AddRecipientModal';
 import SignatureModal from '../components/SignatureModal';
+import { useAuth } from '../context/AuthContext';
 import TextFieldModal from '../components/TextFieldModal';
 import DateFieldModal from '../components/DateFieldModal';
+
 
 export default function Prepare() {
   const { uploadedDoc, docType, fields, setFields, fieldValues, setFieldValues } = useDocument();
@@ -34,7 +36,6 @@ export default function Prepare() {
   const fileName = location.state?.fileName || 'Document.pdf';
   const [zoom, setZoom] = useState(1.0);
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
-  const [showRecipientModal, setShowRecipientModal] = useState(false);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [signatureModalPos, setSignatureModalPos] = useState<{ x: number; y: number } | null>(null);
   const [showTextModal, setShowTextModal] = useState(false);
@@ -43,16 +44,17 @@ export default function Prepare() {
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState<number>(1);
   const documentRef = useRef<HTMLDivElement>(null);
-  const [recipients, setRecipients] = useState([
-    { name: 'John Smith', email: 'john@example.com', role: 'Signer' },
-    { name: 'Jane Doe', email: 'jane@example.com', role: 'Approver' }
-  ]);
-
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  
   const tools = [
     { id: 'signature', name: 'Signature', icon: PenTool, color: 'blue' },
     { id: 'date', name: 'Date', icon: Calendar, color: 'orange' },
     { id: 'text', name: 'Text', icon: Type, color: 'purple' }
   ];
+
+  const { user } = useAuth();
+  // Show all tools to all users; admins can place signatures too.
+  const visibleTools = tools;
 
   // Place field at bottom of current page
   const handlePlaceFieldAtBottom = () => {
@@ -63,7 +65,7 @@ export default function Prepare() {
       x: 50, // center horizontally
       y: 95, // near bottom (95%)
       completed: false,
-      recipient: recipients[0]?.name || 'John Smith',
+      recipient: 'Signer',
       page: currentPage
     };
     setFields([...fields, newField]);
@@ -76,21 +78,18 @@ export default function Prepare() {
     setFields(fields.map(f => f.id === fieldId ? { ...f, y: 95 } : f));
   };
 
-  const handleAddRecipient = (recipient: { name: string; email: string; role: string }) => {
-    setRecipients([...recipients, recipient]);
-  };
-
-  const handleRemoveRecipient = (index: number) => {
-    setRecipients(recipients.filter((_, i) => i !== index));
-  };
-
+  
+  
   const handleDocumentClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!selectedTool) {
       console.log('No tool selected, ignoring click');
       return;
     }
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    // Use the actual rendered PDF page element's bounding box so coordinates map to
+    // the visible page (accounts for centering, zoom and scroll inside the viewer).
+    const pageEl = pageRef.current;
+    const rect = pageEl ? pageEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
 
@@ -102,11 +101,28 @@ export default function Prepare() {
       x: x,
       y: y,
       completed: false,
-      recipient: recipients[0]?.name || 'John Smith',
+      recipient: 'Signer',
       page: currentPage
     };
 
     console.log('Creating new field:', newField);
+
+    // If admin is placing a signature, do not show any popup or visible signature field box
+    // — auto-fill the signature, mark completed, and clear the selected tool.
+    if (user?.role === 'admin' && newField.type === 'signature') {
+      const adminSig = `Signed by ${user.email}`;
+      const filledField = { ...newField, completed: true };
+      setFields([...fields, filledField]);
+      setFieldValues((prev: any) => ({
+        ...prev,
+        [filledField.id]: adminSig,
+        [filledField.id + '_type']: 'text',
+        [filledField.id + '_font']: 'Dancing Script'
+      }));
+      // Do not setActiveField and do not open any modal. Clear the tool selection.
+      setSelectedTool(null);
+      return;
+    }
 
     setFields([...fields, newField]);
     setActiveField(newField);
@@ -114,9 +130,8 @@ export default function Prepare() {
     setSelectedTool(null);
   };
 
-  // Drag state for fields
+  // Simple drag state for fields
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
-  const [dragGhost, setDragGhost] = useState<{ x: number; y: number; field: any } | null>(null);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Only open modal for signature if not dragging, and only on double click
@@ -135,7 +150,30 @@ export default function Prepare() {
         }
       }, 0);
     } else {
-      // For signature, only open modal on double click
+      // For signature: admins should be able to sign inline without a popup.
+      if (field.type === 'signature' && user?.role === 'admin') {
+        // Prevent any popup/modal for admin: stop event propagation and explicitly close modal state.
+        try {
+          e.preventDefault();
+          e.stopPropagation();
+        } catch (err) {
+          // ignore
+        }
+        setShowSignatureModal(false);
+        // Auto-fill a simple text signature for admin and mark completed
+        const adminSig = `Signed by ${user.email}`;
+        setFieldValues((prev: any) => ({
+          ...prev,
+          [field.id]: adminSig,
+          [field.id + '_type']: 'text',
+          [field.id + '_font']: 'Dancing Script'
+        }));
+        setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: true } : f));
+        setActiveField(null);
+        return;
+      }
+
+      // For non-admins, only open modal on double click
       if (e.detail === 2) {
         e.preventDefault();
         e.stopPropagation();
@@ -147,17 +185,17 @@ export default function Prepare() {
   };
 
   // Drag handlers for field boxes
-  // Only signature fields get desktop-style drag
+  // Simple drag for signature fields
   const handleFieldMouseDown = (field: any, e: React.MouseEvent) => {
     if (field.type !== 'signature') return;
     e.stopPropagation();
     setDraggingFieldId(field.id);
-    const parent = documentRef.current;
+    const pageEl = pageRef.current;
     let startX = 0, startY = 0;
-    if (parent) {
-      const rect = parent.getBoundingClientRect();
+    if (pageEl) {
+      const rect = pageEl.getBoundingClientRect();
       startX = e.clientX - rect.left;
-      startY = e.clientY - rect.top + parent.scrollTop;
+      startY = e.clientY - rect.top;
       dragOffset.current = {
         x: startX - (rect.width * field.x) / 100,
         y: startY - (rect.height * field.y) / 100
@@ -165,40 +203,30 @@ export default function Prepare() {
     } else {
       dragOffset.current = { x: 0, y: 0 };
     }
-    setDragGhost({ x: startX, y: startY, field });
     window.addEventListener('mousemove', handleFieldMouseMove as any);
     window.addEventListener('mouseup', handleFieldMouseUp as any);
   };
 
   const handleFieldMouseMove = (e: MouseEvent) => {
-    if (!draggingFieldId || !dragGhost) return;
-    const parent = documentRef.current;
-    if (!parent) return;
-    const rect = parent.getBoundingClientRect();
-    let relX = e.clientX - rect.left - dragOffset.current.x;
-    let relY = e.clientY - rect.top - dragOffset.current.y + parent.scrollTop;
-    // Clamp to bounds
-    relX = Math.max(0, Math.min(rect.width, relX));
-    relY = Math.max(0, Math.min(rect.height, relY));
-    setDragGhost({ x: relX, y: relY, field: dragGhost.field });
+    if (!draggingFieldId) return;
+    const pageEl = pageRef.current;
+    if (!pageEl) return;
+    const rect = pageEl.getBoundingClientRect();
+  let relX = e.clientX - rect.left - dragOffset.current.x;
+  let relY = e.clientY - rect.top - dragOffset.current.y;
+  // Clamp to bounds (allow anywhere in container, including bottom edge)
+  relX = Math.max(0, Math.min(rect.width, relX));
+  // Allow y to reach 100% (bottom edge)
+  relY = Math.max(0, Math.min(rect.height, relY));
+  let x = (relX / rect.width) * 100;
+  let y = (relY / rect.height) * 100;
+  // Clamp y to max 100, but allow field to be visible at bottom
+  y = Math.max(0, Math.min(100, y));
+  setFields(fields.map((f: FieldPlacement) => f.id === draggingFieldId ? { ...f, x, y } : f));
   };
 
   const handleFieldMouseUp = () => {
-    if (!draggingFieldId || !dragGhost) {
-      setDraggingFieldId(null);
-      setDragGhost(null);
-      window.removeEventListener('mousemove', handleFieldMouseMove as any);
-      window.removeEventListener('mouseup', handleFieldMouseUp as any);
-      return;
-    }
-    const parent = documentRef.current;
-    if (!parent) return;
-    const rect = parent.getBoundingClientRect();
-    const x = (dragGhost.x / rect.width) * 100;
-    const y = (dragGhost.y / rect.height) * 100;
-    setFields(fields => fields.map(f => f.id === draggingFieldId ? { ...f, x, y } : f));
     setDraggingFieldId(null);
-    setTimeout(() => setDragGhost(null), 200); // allow drop animation
     window.removeEventListener('mousemove', handleFieldMouseMove as any);
     window.removeEventListener('mouseup', handleFieldMouseUp as any);
   };
@@ -263,11 +291,9 @@ export default function Prepare() {
   };
 
   const handleSendForSignature = () => {
-    if (fields.length === 0) {
-      alert('Please add at least one field to the document before sending for signature.');
-      return;
-    }
-    navigate('/sign');
+    // Allow proceeding to Send even when there are no fields/signatures.
+    // Signatures are optional. Navigate directly to the Send page.
+    navigate('/send');
   };
 
   const getFieldPosition = (field: any) => {
@@ -280,22 +306,19 @@ export default function Prepare() {
 
   return (
     <>
-      <AddRecipientModal
-        isOpen={showRecipientModal}
-        onClose={() => setShowRecipientModal(false)}
-        onAdd={handleAddRecipient}
-      />
-      <SignatureModal
-        isOpen={showSignatureModal}
-        initialPosition={signatureModalPos}
-        onClose={() => {
-          console.log('Closing signature modal');
-          setShowSignatureModal(false);
-          setActiveField(null);
-          setSignatureModalPos(null);
-        }}
-        onSave={handleSaveSignature}
-      />
+      {user?.role !== 'admin' && (
+        <SignatureModal
+          isOpen={showSignatureModal}
+          initialPosition={signatureModalPos}
+          onClose={() => {
+            console.log('Closing signature modal');
+            setShowSignatureModal(false);
+            setActiveField(null);
+            setSignatureModalPos(null);
+          }}
+          onSave={handleSaveSignature}
+        />
+      )}
       <TextFieldModal
         isOpen={showTextModal}
         onClose={() => {
@@ -317,7 +340,10 @@ export default function Prepare() {
       
       <div className="h-screen flex flex-col bg-gray-50">
         <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="max-w-4xl mx-auto">
+            <Stepper steps={["Upload", "Prepare", "Send"]} currentStep={2} />
+          </div>
+          <div className="flex items-center justify-between max-w-4xl mx-auto">
             <div>
               <h1 className="text-xl font-semibold text-gray-900">{fileName}</h1>
               <p className="text-sm text-gray-600">Add fields and prepare for signature</p>
@@ -343,7 +369,7 @@ export default function Prepare() {
             <div className="p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Add Fields</h2>
               <div className="space-y-2 mb-8">
-                {tools.map((tool) => {
+                {visibleTools.map((tool) => {
                   const Icon = tool.icon;
                   return (
                     <button
@@ -399,47 +425,7 @@ export default function Prepare() {
                 )}
               </div>
 
-              <div className="border-t border-gray-200 pt-6">
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                  Recipients ({recipients.length})
-                </h3>
-                <div className="space-y-3">
-                  {recipients.map((recipient, index) => (
-                    <div key={index} className="p-3 bg-gray-50 rounded-lg group hover:bg-gray-100 transition-colors">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <div className="bg-blue-100 p-1.5 rounded">
-                            <User className="h-4 w-4 text-blue-600" />
-                          </div>
-                          <span className="font-medium text-gray-900 text-sm">{recipient.name}</span>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveRecipient(index)}
-                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-all"
-                          title="Remove recipient"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-600" />
-                        </button>
-                      </div>
-                      <div className="flex items-center space-x-2 text-xs text-gray-600 mb-2">
-                        <Mail className="h-3 w-3" />
-                        <span>{recipient.email}</span>
-                      </div>
-                      <div>
-                        <span className="inline-block px-2 py-1 bg-white border border-gray-200 rounded text-xs font-medium text-gray-700">
-                          {recipient.role}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    onClick={() => setShowRecipientModal(true)}
-                    className="w-full py-2 text-blue-600 font-medium hover:bg-blue-50 rounded-lg transition-colors text-sm"
-                  >
-                    + Add Recipient
-                  </button>
-                </div>
-              </div>
+              
             </div>
           </div>
 
@@ -485,15 +471,7 @@ export default function Prepare() {
               <div className="bg-white shadow-xl rounded-lg relative document-container">
                 {uploadedDoc && docType === 'pdf' ? (
                   <>
-                    <div 
-                      ref={documentRef} 
-                      className="relative w-full pdf-viewer-container overflow-y-auto" 
-                      style={{ 
-                        cursor: selectedTool ? 'crosshair' : 'default', 
-                        height: '800px' 
-                      }}
-                      onClick={handleDocumentClick}
-                    >
+                    <div ref={documentRef} className="relative w-full pdf-viewer-container overflow-y-auto" style={{ height: '800px' }}>
                       <Document
                         file={uploadedDoc}
                         onLoadSuccess={({ numPages }) => {
@@ -502,107 +480,90 @@ export default function Prepare() {
                         }}
                         loading={<div className="p-8 text-center">Loading PDF...</div>}
                       >
-                        <Page
-                          pageNumber={currentPage}
-                          width={800 * zoom}
-                          renderAnnotationLayer={false}
-                          renderTextLayer={false}
-                        />
-                      </Document>
-                      
-                      <div 
-                        className="absolute top-0 left-0 w-full h-full" 
-                        style={{ pointerEvents: 'none' }}
-                      >
-                        {/* Ghost preview for signature field drag */}
-                        {dragGhost && dragGhost.field.type === 'signature' && draggingFieldId && (
-                          <div
-                            className="pointer-events-none absolute z-50 opacity-80 scale-110 transition-transform duration-200 animate-pulse"
-                            style={{
-                              left: dragGhost.x,
-                              top: dragGhost.y,
-                              minWidth: 120,
-                              width: 'auto',
-                            }}
-                          >
-                            <div className="px-3 py-2 rounded border-2 border-dashed border-blue-400 bg-white shadow-lg">
-                              <div className="flex items-center space-x-2 min-w-[120px]">
-                                <span className="text-sm font-medium text-blue-600 whitespace-nowrap">✍️ Signature</span>
+                        {/* pageRef wraps the rendered Page so we can align overlays and compute coordinates precisely */}
+                        <div ref={pageRef} onClick={handleDocumentClick} style={{ display: 'inline-block', position: 'relative', cursor: selectedTool ? 'crosshair' : 'default' }}>
+                          <Page
+                            pageNumber={currentPage}
+                            width={800 * zoom}
+                            renderAnnotationLayer={false}
+                            renderTextLayer={false}
+                          />
+
+                          {/* overlay tied to pageRef so positions use the page bounding box */}
+                          <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
+                            {fields.filter(field => field.page === currentPage && !(user?.role === 'admin' && field.type === 'signature')).map((field) => (
+                              <div
+                                key={field.id}
+                                style={{
+                                  ...getFieldPosition(field),
+                                  zIndex: 30,
+                                  pointerEvents: 'auto',
+                                  cursor: 'pointer',
+                                  transition: draggingFieldId === field.id ? 'transform 0.2s cubic-bezier(0.4,0,0.2,1)' : undefined
+                                }}
+                                onClick={(e) => handleFieldClick(field, e)}
+                                onMouseDown={(e) => handleFieldMouseDown(field, e)}
+                                className={`px-3 py-2 rounded border bg-white shadow-lg group hover:shadow-xl transition-all duration-200 field-container ${
+                                  field.completed
+                                    ? 'border-green-500 bg-green-50'
+                                    : 'border-blue-500 border-2 bg-blue-50'
+                                } ${field.type === 'signature' && draggingFieldId === field.id ? 'ring-2 ring-blue-400 cursor-grabbing scale-105' : 'cursor-move'}`}
+                              >
+                                <div className="flex items-center space-x-2 min-w-[120px]">
+                                  {field.type === 'signature' && (
+                                    fieldValues[field.id] ? (
+                                      fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
+                                        <img src={fieldValues[field.id]} alt="Signature" className="h-6 max-w-[80px] object-contain" />
+                                      ) : (
+                                        <span className="text-lg whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}>
+                                          {fieldValues[field.id]}
+                                        </span>
+                                      )
+                                    ) : (
+                                      <span className="text-sm font-medium text-blue-600 whitespace-nowrap">✍️ {field.type}</span>
+                                    )
+                                  )}
+                                  {field.type === 'date' && (
+                                    fieldValues[field.id] ? (
+                                      <span className="text-sm">{fieldValues[field.id]}</span>
+                                    ) : (
+                                      <span className="text-sm font-medium text-blue-600">📅 {field.type}</span>
+                                    )
+                                  )}
+                                  {field.type === 'text' && (
+                                    fieldValues[field.id] ? (
+                                      <span className="text-sm">{fieldValues[field.id]}</span>
+                                    ) : (
+                                      <span className="text-sm font-medium text-blue-600">📝 {field.type}</span>
+                                    )
+                                  )}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveField(field.id);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 ml-2 transition-opacity"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                  {/* Move to Bottom button */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveFieldToBottom(field.id);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-700 ml-2 transition-opacity"
+                                    title="Move to Bottom"
+                                  >
+                                    ↓
+                                  </button>
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1 text-center">{field.recipient}</div>
                               </div>
-                            </div>
+                            ))}
                           </div>
-                        )}
-                        {fields.filter(field => field.page === currentPage).map((field) => (
-                          <div
-                            key={field.id}
-                            style={{ 
-                              ...getFieldPosition(field), 
-                              zIndex: 30, 
-                              pointerEvents: 'auto', 
-                              cursor: 'pointer',
-                              transition: draggingFieldId === field.id ? 'transform 0.2s cubic-bezier(0.4,0,0.2,1)' : undefined
-                            }}
-                            onClick={(e) => handleFieldClick(field, e)}
-                            onMouseDown={(e) => handleFieldMouseDown(field, e)}
-                            className={`px-3 py-2 rounded border bg-white shadow-lg group hover:shadow-xl transition-all duration-200 field-container ${
-                              field.completed 
-                                ? 'border-green-500 bg-green-50' 
-                                : 'border-blue-500 border-2 bg-blue-50'
-                            } ${field.type === 'signature' && draggingFieldId === field.id ? 'ring-2 ring-blue-400 cursor-grabbing scale-105' : 'cursor-move'}`}
-                          >
-                            <div className="flex items-center space-x-2 min-w-[120px]">
-                              {field.type === 'signature' && (
-                                fieldValues[field.id] ? (
-                                  fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
-                                    <img src={fieldValues[field.id]} alt="Signature" className="h-6 max-w-[80px] object-contain" />
-                                  ) : (
-                                    <span className="text-lg whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}>
-                                      {fieldValues[field.id]}
-                                    </span>
-                                  )
-                                ) : (
-                                  <span className="text-sm font-medium text-blue-600 whitespace-nowrap">✍️ {field.type}</span>
-                                )
-                              )}
-                              {field.type === 'date' && (
-                                fieldValues[field.id] ? (
-                                  <span className="text-sm">{fieldValues[field.id]}</span>
-                                ) : (
-                                  <span className="text-sm font-medium text-blue-600">📅 {field.type}</span>
-                                )
-                              )}
-                              {field.type === 'text' && (
-                                fieldValues[field.id] ? (
-                                  <span className="text-sm">{fieldValues[field.id]}</span>
-                                ) : (
-                                  <span className="text-sm font-medium text-blue-600">📝 {field.type}</span>
-                                )
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRemoveField(field.id);
-                                }}
-                                className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 ml-2 transition-opacity"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                              {/* Move to Bottom button */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMoveFieldToBottom(field.id);
-                                }}
-                                className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-700 ml-2 transition-opacity"
-                                title="Move to Bottom"
-                              >
-                                ↓
-                              </button>
-                            </div>
-                            <div className="text-xs text-gray-500 mt-1 text-center">{field.recipient}</div>
-                          </div>
-                        ))}
-                      </div>
+                        </div>
+                      </Document>
                     </div>
                     
                     <div className="flex items-center justify-center mt-4 pb-4 space-x-4">
@@ -656,7 +617,7 @@ function FileText({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        d="M9 12h6m-6 4h6m2 5H7a2z 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
       />
     </svg>
   );

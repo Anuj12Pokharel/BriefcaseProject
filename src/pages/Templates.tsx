@@ -1,6 +1,30 @@
+import { useState } from 'react';
 import { Search, Filter, FileText, Download, Eye, Star } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useDocument } from '../context/DocumentContext';
 
-export default function Templates() {
+function Modal({ open, onClose, title, children }: { open: boolean, onClose: () => void, title: string, children: React.ReactNode }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+      <div className="bg-white rounded-xl shadow-xl p-8 min-w-[320px] max-w-lg relative">
+        <button onClick={onClose} className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 text-xl">×</button>
+        <h2 className="text-xl font-bold mb-4">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Templates() {
+  const [previewTemplate, setPreviewTemplate] = useState<any>(null);
+  const [editTemplate, setEditTemplate] = useState<any>(null);
+  const [cloneTemplate, setCloneTemplate] = useState<any>(null);
+  const [deleteTemplate, setDeleteTemplate] = useState<any>(null);
+  const [addNewOpen, setAddNewOpen] = useState(false);
+  const [useTemplate, setUseTemplate] = useState<any>(null);
+  const navigate = useNavigate();
+  const { setFieldValues } = useDocument();
 
   const templates = [
     {
@@ -146,13 +170,60 @@ export default function Templates() {
                 </div>
 
                 <div className="flex gap-2">
-                  <button className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm">
+                  <button className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm" onClick={() => setUseTemplate(template)}>
                     Use Template
                   </button>
-                  <button className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                  <button className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" title="Preview" onClick={() => setPreviewTemplate(template)}>
                     <Eye className="h-5 w-5 text-gray-600" />
                   </button>
+                  <button className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" title="Clone" onClick={() => setCloneTemplate(template)}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16h8M8 12h8m-8-4h8M4 6h16M4 18h16" /></svg>
+                  </button>
+                  <button className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" title="Edit" onClick={() => setEditTemplate(template)}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 11l6 6M3 21h6l12-12a2.828 2.828 0 00-4-4L5 17v4z" /></svg>
+                  </button>
+                  <button className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" title="Delete" onClick={() => setDeleteTemplate(template)}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
                 </div>
+      {/* Add New Template Button */}
+      <div className="fixed bottom-8 right-8 z-50">
+        <button className="bg-blue-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center space-x-2 hover:bg-blue-700 transition-colors font-semibold text-lg" onClick={() => setAddNewOpen(true)}>
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+          <span>Add New Template</span>
+        </button>
+      </div>
+
+      {/* Modals for actions */}
+      <Modal open={!!previewTemplate} onClose={() => setPreviewTemplate(null)} title={previewTemplate?.name ? `Preview: ${previewTemplate.name}` : 'Preview'}>
+        <div className="text-gray-700">Template preview coming soon.</div>
+      </Modal>
+      <Modal open={!!cloneTemplate} onClose={() => setCloneTemplate(null)} title={cloneTemplate?.name ? `Clone: ${cloneTemplate.name}` : 'Clone'}>
+        <div className="text-gray-700">Clone template functionality coming soon.</div>
+      </Modal>
+      <Modal open={!!editTemplate} onClose={() => setEditTemplate(null)} title={editTemplate?.name ? `Edit: ${editTemplate.name}` : 'Edit'}>
+        <div className="text-gray-700">Edit template functionality coming soon.</div>
+      </Modal>
+      <Modal open={!!deleteTemplate} onClose={() => setDeleteTemplate(null)} title={deleteTemplate?.name ? `Delete: ${deleteTemplate.name}` : 'Delete'}>
+        <div className="text-gray-700 mb-4">Are you sure you want to delete this template?</div>
+        <button className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors mr-2" onClick={() => setDeleteTemplate(null)}>Delete</button>
+        <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition-colors" onClick={() => setDeleteTemplate(null)}>Cancel</button>
+      </Modal>
+      <Modal open={addNewOpen} onClose={() => setAddNewOpen(false)} title="Add New Template">
+        <div className="text-gray-700">Add new template form coming soon.</div>
+      </Modal>
+      <Modal open={!!useTemplate} onClose={() => setUseTemplate(null)} title={useTemplate?.name ? `Use: ${useTemplate.name}` : 'Use Template'}>
+        <div className="text-gray-700">Start using this template.</div>
+        <div className="mt-4 flex justify-end space-x-2">
+          <button onClick={() => setUseTemplate(null)} className="px-3 py-1.5 bg-gray-100 rounded">Cancel</button>
+          <button onClick={() => {
+            // insert template into Upload message via context and navigate back
+            setFieldValues((prev: Record<string, any>) => ({ ...prev, messageToRecipients: prev.messageToRecipients ? prev.messageToRecipients + '\n\n' + (useTemplate?.description || '') : (useTemplate?.description || '') }));
+            setUseTemplate(null);
+            navigate('/upload');
+          }} className="px-3 py-1.5 bg-blue-600 text-white rounded">Insert into Upload</button>
+        </div>
+      </Modal>
               </div>
             </div>
           ))}
@@ -161,3 +232,5 @@ export default function Templates() {
     </div>
   );
 }
+
+export default Templates;

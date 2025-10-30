@@ -1,10 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type MouseEvent } from "react";
 import { Check, X, PenTool, ChevronUp, ChevronDown } from "lucide-react";
 import SignatureModal from '../components/SignatureModal';
+import { useAuth } from '../context/AuthContext';
 import InitialModal from '../components/InitialModal';
 import TextFieldModal from '../components/TextFieldModal';
 import DateFieldModal from '../components/DateFieldModal';
 import { useDocument } from '../context/DocumentContext';
+import { Document, Page, pdfjs } from 'react-pdf';
+
+// configure pdfjs worker
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 interface Signature {
   id: number;
@@ -25,13 +30,15 @@ export default function Sign() {
   const [showDateModal, setShowDateModal] = useState(false);
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages] = useState(3); // Will be dynamic based on PDF
+  const [numPages, setNumPages] = useState<number>(1);
 
   const { uploadedDoc, docType, fields, setFields, fieldValues, setFieldValues } = useDocument();
+  const { user } = useAuth();
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<{[key: number]: HTMLDivElement | null}>({});
   const [activeField, setActiveField] = useState<any>(null);
+  const [placingSignature, setPlacingSignature] = useState(false);
 
   // PDF Page dimensions (standard A4 at 96 DPI)
   const PAGE_HEIGHT = 1056;
@@ -44,7 +51,7 @@ export default function Sign() {
       if (!scrollContainerRef.current) return;
       const scrollTop = scrollContainerRef.current.scrollTop;
       const newPage = Math.floor(scrollTop / (PAGE_HEIGHT + PAGE_GAP)) + 1;
-      if (newPage !== currentPage && newPage <= totalPages && newPage >= 1) {
+      if (newPage !== currentPage && newPage <= numPages && newPage >= 1) {
         setCurrentPage(newPage);
       }
     };
@@ -54,7 +61,7 @@ export default function Sign() {
       container.addEventListener('scroll', handleScroll);
       return () => container.removeEventListener('scroll', handleScroll);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, numPages]);
 
   const scrollToPage = (pageNum: number) => {
     const targetY = (pageNum - 1) * (PAGE_HEIGHT + PAGE_GAP);
@@ -67,7 +74,7 @@ export default function Sign() {
     setCurrentPage(pageNum);
   };
 
-  const handleFieldClick = (field: any, e?: React.MouseEvent) => {
+  const handleFieldClick = (field: any, e?: MouseEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -76,6 +83,16 @@ export default function Sign() {
     setActiveField(field);
     
     if (field.type === 'signature') {
+      // For admin users, do not open the popup — autofill and mark completed inline
+      if (user?.role === 'admin') {
+        try { e?.preventDefault(); e?.stopPropagation(); } catch (err) {}
+        setShowSignatureModal(false);
+        const adminSig = `Signed by ${user.email}`;
+        setFieldValues((prev: any) => ({ ...prev, [field.id]: adminSig, [field.id + '_type']: 'text', [field.id + '_font']: 'Dancing Script' }));
+        setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: true } : f));
+        setActiveField(null);
+        return;
+      }
       console.log('Opening signature modal');
       setTimeout(() => setShowSignatureModal(true), 0);
     }
@@ -141,7 +158,25 @@ export default function Sign() {
   };
 
   const addNewSignature = () => {
-    setShowSignatureModal(true);
+    // If admin, don't open the signature modal — auto-add an inline signature
+    if (user?.role === 'admin') {
+      const newSig: Signature = {
+        id: Date.now(),
+        data: `Signed by ${user.email}`,
+        type: 'type',
+        font: 'Dancing Script',
+        x: 10,
+        y: 20,
+        width: 40,
+        height: 10,
+        page: currentPage
+      };
+      setSignatures((s) => [...s, newSig]);
+      return;
+    }
+
+    // For signers, toggle placement mode: the next click on the document will add a signature field
+    setPlacingSignature((p) => !p);
     setActiveField(null);
   };
 
@@ -155,6 +190,11 @@ export default function Sign() {
       left: `${field.x}%`,
       top: `${pageOffset + topPercentInPage}px`
     };
+  };
+
+  // PDF load success handler
+  const handlePdfLoadSuccess = ({ numPages }: { numPages: number }) => {
+    setNumPages(numPages);
   };
 
   return (
@@ -192,18 +232,17 @@ export default function Sign() {
                   <h2 className="text-lg font-semibold text-gray-900">Document Preview</h2>
                   <div className="flex items-center space-x-3">
                     <div className="flex items-center space-x-2 text-sm text-gray-600">
-                      <span>Page {currentPage} of {totalPages}</span>
+                      <span>Page {currentPage} of {numPages}</span>
                     </div>
                     <button
                       onClick={addNewSignature}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                      className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${placingSignature ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
                     >
                       <PenTool className="h-4 w-4" />
-                      <span>Add Signature</span>
+                      <span>{placingSignature ? 'Place signature (click document)' : 'Add Signature'}</span>
                     </button>
                   </div>
                 </div>
-                
                 {/* Scrollable PDF Container */}
                 <div
                   ref={scrollContainerRef}
@@ -215,11 +254,45 @@ export default function Sign() {
                       className="relative mx-auto"
                       style={{ 
                         width: `${PAGE_WIDTH}px`,
-                        height: `${(PAGE_HEIGHT + PAGE_GAP) * totalPages - PAGE_GAP}px`
+                        height: `${(PAGE_HEIGHT + PAGE_GAP) * numPages - PAGE_GAP}px`
+                      }}
+                      onClick={(e) => {
+                        if (!placingSignature) return;
+                        // Determine which page was clicked using page refs
+                        const clickX = (e as React.MouseEvent).clientX;
+                        const clickY = (e as React.MouseEvent).clientY;
+                        let clickedPage: number | null = null;
+                        let relX = 0;
+                        let relY = 0;
+                        for (let p = 1; p <= numPages; p++) {
+                          const el = pageRefs.current[p];
+                          if (!el) continue;
+                          const rect = el.getBoundingClientRect();
+                          if (clickX >= rect.left && clickX <= rect.right && clickY >= rect.top && clickY <= rect.bottom) {
+                            clickedPage = p;
+                            relX = ((clickX - rect.left) / rect.width) * 100;
+                            relY = ((clickY - rect.top) / rect.height) * 100;
+                            break;
+                          }
+                        }
+                        if (!clickedPage) return;
+                        const newField = {
+                          id: `field_${Date.now()}`,
+                          type: 'signature',
+                          x: relX,
+                          y: relY,
+                          completed: false,
+                          recipient: 'Signer',
+                          page: clickedPage
+                        } as any;
+                        setFields([...fields, newField]);
+                        setActiveField(newField);
+                        // Exit placement mode. The user should click the new field to open the signature modal.
+                        setPlacingSignature(false);
                       }}
                     >
                       {/* Render Pages */}
-                      {[...Array(totalPages)].map((_, pageIndex) => {
+                      {[...Array(numPages)].map((_, pageIndex) => {
                         const pageNum = pageIndex + 1;
                         return (
                           <div
@@ -229,17 +302,23 @@ export default function Sign() {
                             style={{
                               width: `${PAGE_WIDTH}px`,
                               height: `${PAGE_HEIGHT}px`,
-                              marginBottom: pageNum < totalPages ? `${PAGE_GAP}px` : '0',
+                              marginBottom: pageNum < numPages ? `${PAGE_GAP}px` : '0',
                               position: 'relative'
                             }}
                           >
-                            {/* PDF Page Content - Replace with actual PDF rendering */}
-                            <iframe
-                              src={`${uploadedDoc}#page=${pageNum}`}
-                              title={`PDF Page ${pageNum}`}
-                              className="w-full h-full border-0"
-                              style={{ pointerEvents: 'none' }}
-                            />
+                            {/* PDF Page Content - Use react-pdf */}
+                            <Document
+                              file={uploadedDoc}
+                              onLoadSuccess={handlePdfLoadSuccess}
+                              loading={<div className="p-8 text-center">Loading PDF...</div>}
+                            >
+                              <Page
+                                pageNumber={pageNum}
+                                width={PAGE_WIDTH}
+                                renderAnnotationLayer={false}
+                                renderTextLayer={false}
+                              />
+                            </Document>
                           </div>
                         );
                       })}
@@ -382,11 +461,11 @@ export default function Sign() {
                     <ChevronUp className="h-5 w-5 text-gray-600" />
                   </button>
                   <span className="text-sm text-gray-600 font-medium">
-                    Page {currentPage} of {totalPages}
+                    Page {currentPage} of {numPages}
                   </span>
                   <button
-                    onClick={() => scrollToPage(Math.min(totalPages, currentPage + 1))}
-                    disabled={currentPage === totalPages}
+                    onClick={() => scrollToPage(Math.min(numPages, currentPage + 1))}
+                    disabled={currentPage === numPages}
                     className="p-2 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronDown className="h-5 w-5 text-gray-600" />
@@ -471,14 +550,16 @@ export default function Sign() {
       </div>
 
       {/* Modals */}
-      <SignatureModal
-        isOpen={showSignatureModal}
-        onClose={() => {
-          setShowSignatureModal(false);
-          setActiveField(null);
-        }}
-        onSave={handleSaveSignature}
-      />
+      {user?.role !== 'admin' && (
+        <SignatureModal
+          isOpen={showSignatureModal}
+          onClose={() => {
+            setShowSignatureModal(false);
+            setActiveField(null);
+          }}
+          onSave={handleSaveSignature}
+        />
+      )}
       <InitialModal
         isOpen={showInitialModal}
         onClose={() => {
