@@ -55,6 +55,8 @@ export default function Prepare() {
   const { user } = useAuth();
   // Show all tools to all users; admins can place signatures too.
   const visibleTools = tools;
+  const { recipients } = useDocument();
+  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string | null>(null);
 
   // Place field at bottom of current page
   const handlePlaceFieldAtBottom = () => {
@@ -65,7 +67,7 @@ export default function Prepare() {
       x: 50, // center horizontally
       y: 95, // near bottom (95%)
       completed: false,
-      recipient: 'Signer',
+      recipient: selectedRecipientEmail || 'Signer',
       page: currentPage
     };
     setFields([...fields, newField]);
@@ -101,7 +103,7 @@ export default function Prepare() {
       x: x,
       y: y,
       completed: false,
-      recipient: 'Signer',
+      recipient: selectedRecipientEmail || 'Signer',
       page: currentPage
     };
 
@@ -379,6 +381,36 @@ export default function Prepare() {
                     Place at Bottom of Page
                   </button>
                 )}
+
+                {/* Recipient selector for admins when placing signature fields */}
+                {user?.role === 'admin' && selectedTool === 'signature' && (
+                  <div className="mt-4 p-3 border-t pt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Assign to recipient</label>
+                    <div className="space-y-2">
+                      {(recipients || []).map(r => (
+                        <button
+                          key={r.id}
+                          onClick={() => setSelectedRecipientEmail(r.email)}
+                          className={`w-full text-left px-3 py-2 rounded-md border ${selectedRecipientEmail === r.email ? 'border-blue-500 bg-blue-50' : 'border-gray-100 bg-white'}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-medium text-gray-900">{r.name || r.email}</div>
+                              <div className="text-xs text-gray-500">{r.email} • {r.designation || '—'}</div>
+                            </div>
+                            {selectedRecipientEmail === r.email && <div className="text-xs text-blue-600">Selected</div>}
+                          </div>
+                        </button>
+                      ))}
+                      {(!recipients || recipients.length === 0) && (
+                        <div className="text-sm text-gray-500">No recipients defined. Add recipients in Upload first.</div>
+                      )}
+                      {selectedRecipientEmail && (
+                        <div className="mt-2 text-sm text-gray-600">Selected recipient: <span className="font-medium">{selectedRecipientEmail}</span></div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-gray-200 pt-6 mb-6">
@@ -537,7 +569,7 @@ export default function Prepare() {
                                     ↓
                                   </button>
                                 </div>
-                                <div className="text-xs text-gray-500 mt-1 text-center">{field.recipient}</div>
+                                {/* Recipient identity is intentionally hidden in the box (no name or email shown) */}
                               </div>
                             ))}
                           </div>

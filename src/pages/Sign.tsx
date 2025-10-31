@@ -6,6 +6,7 @@ import InitialModal from '../components/InitialModal';
 import TextFieldModal from '../components/TextFieldModal';
 import DateFieldModal from '../components/DateFieldModal';
 import { useDocument } from '../context/DocumentContext';
+import { useLocation } from 'react-router-dom';
 import { Document, Page, pdfjs } from 'react-pdf';
 
 // configure pdfjs worker
@@ -32,8 +33,35 @@ export default function Sign() {
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState<number>(1);
 
-  const { uploadedDoc, docType, fields, setFields, fieldValues, setFieldValues } = useDocument();
+  const { uploadedDoc, docType, fields, setFields, fieldValues, setFieldValues, setDocument } = useDocument();
   const { user } = useAuth();
+  const location = useLocation();
+  const [currentSignerEmail, setCurrentSignerEmail] = useState<string | null>(null);
+
+  // If the page is opened from an external link (email), the sender may include a preview URL
+  // or file URL in location.state.previewUrl or as a query param `file`. Mounting logic will
+  // set the document into context so the preview loads and the recipient can sign without login.
+  useEffect(() => {
+    if (uploadedDoc) return;
+    try {
+      const stateAny: any = (location && (location.state as any)) || {};
+      const previewUrl = stateAny.previewUrl || new URLSearchParams(location.search).get('file');
+      // Determine the recipient email from location state or query param (used for unauthenticated signing links)
+      const recipientFromState = stateAny.recipientEmail || stateAny.email || new URLSearchParams(location.search).get('recipient') || new URLSearchParams(location.search).get('email');
+      if (recipientFromState) setCurrentSignerEmail(recipientFromState as string);
+      if (previewUrl) {
+        setDocument(previewUrl, 'pdf');
+      }
+    } catch (e) {
+      // ignore malformed URL or missing params
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If a user is logged in, prefer their email as the signer identity
+  useEffect(() => {
+    if (user?.email) setCurrentSignerEmail(user.email);
+  }, [user]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<{[key: number]: HTMLDivElement | null}>({});
@@ -80,6 +108,16 @@ export default function Sign() {
       e.stopPropagation();
     }
     console.log('Field clicked:', field);
+    // Only allow opening signature modal if the field is assigned to this signer (or is a generic 'Signer' field)
+    const isAssignedToThis = !field.recipient || field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail);
+    // Admins are allowed special behavior (auto-sign)
+    const isAdmin = user?.role === 'admin';
+
+    if (!isAssignedToThis && !isAdmin) {
+      console.log('Field is not assigned to this signer; ignoring click');
+      return;
+    }
+
     setActiveField(field);
     
     if (field.type === 'signature') {
@@ -331,12 +369,13 @@ export default function Sign() {
                             position: 'absolute',
                             ...getFieldPosition(field),
                             zIndex: 200, 
-                            cursor: 'pointer',
-                            pointerEvents: 'auto',
+                            cursor: (user?.role === 'admin' || !field.recipient || field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail)) ? 'pointer' : 'not-allowed',
+                            pointerEvents: (user?.role === 'admin' || !field.recipient || field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail)) ? 'auto' : 'none',
                             width: 'auto',
                             minWidth: '120px'
                           }}
                           onClick={(e) => {
+                            // If the field isn't assigned to this signer and not admin, clicks are ignored due to pointerEvents 'none'
                             e.preventDefault();
                             e.stopPropagation();
                             handleFieldClick(field, e);
@@ -389,7 +428,7 @@ export default function Sign() {
                             )}
                           </div>
                           <div className="text-xs text-gray-500 mt-1 text-center">
-                            {field.recipient || 'Signer'} • Page {field.page}
+                            {((field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail) || user?.role === 'admin') ? 'Your field • ' : '')}Page {field.page}
                           </div>
                         </div>
                       ))}

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Upload as UploadIcon, FileText, X, ArrowRight, Users, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useDocument } from '../context/DocumentContext';
 import Stepper from '../components/Stepper';
 
@@ -32,7 +33,8 @@ function Upload() {
   const [previewTemplate, setPreviewTemplate] = useState<null | {id:string;title:string;body:string}>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { setDocument, setFieldValues, uploadedDoc, fieldValues } = useDocument();
+  const { setDocument, setFieldValues, uploadedDoc, fieldValues, recipients, setRecipients } = useDocument();
+  const { user } = useAuth();
 
   // Configuration
   const MAX_FILE_SIZE_MB = 25; // adjust if needed
@@ -303,6 +305,64 @@ function Upload() {
                         </button>
                       </div>
                   </div>
+
+                  {/* Recipients (admin only) */}
+                  {user?.role === 'admin' && (
+                    <div className="mt-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold text-gray-900">Recipients <span className="text-sm text-gray-500">({recipients.length})</span></h4>
+                        <button
+                          onClick={() => {
+                            const id = `r_${Date.now()}`;
+                            setRecipients([...(recipients || []), { id, name: '', email: '', designation: '' }]);
+                          }}
+                          className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm"
+                        >
+                          <Plus className="h-4 w-4 mr-2" /> Add Recipient
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {(recipients || []).map((r, idx) => (
+                          <div key={r.id} className="p-3 border border-gray-100 rounded-md bg-gray-50">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-sm font-medium">Recipient {idx + 1}</div>
+                              <button
+                                onClick={() => setRecipients(recipients.filter(rr => rr.id !== r.id))}
+                                className="text-red-600 hover:text-red-800 text-sm"
+                              >Remove</button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <input
+                                type="text"
+                                placeholder="Full name"
+                                value={r.name}
+                                onChange={(e) => setRecipients(recipients.map(rr => rr.id === r.id ? { ...rr, name: e.target.value } : rr))}
+                                className="px-3 py-2 border rounded-md"
+                              />
+                              <input
+                                type="email"
+                                placeholder="Email"
+                                value={r.email}
+                                onChange={(e) => setRecipients(recipients.map(rr => rr.id === r.id ? { ...rr, email: e.target.value } : rr))}
+                                className="px-3 py-2 border rounded-md"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Designation"
+                                value={r.designation}
+                                onChange={(e) => setRecipients(recipients.map(rr => rr.id === r.id ? { ...rr, designation: e.target.value } : rr))}
+                                className="px-3 py-2 border rounded-md"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        {recipients.length === 0 && (
+                          <div className="text-sm text-gray-500">No recipients added yet.</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {previewUrl && (
                     <div>

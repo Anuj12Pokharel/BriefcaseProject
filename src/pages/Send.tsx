@@ -1,24 +1,12 @@
 ﻿import { useState, useEffect } from 'react';
-import { Plus, X, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Stepper from '../components/Stepper';
 import { useDocument } from '../context/DocumentContext';
 
-interface Recipient {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-  designation?: string;
-}
-
 export default function Send() {
   const navigate = useNavigate();
-  const { uploadedDoc, fields, fieldValues, setFieldValues } = useDocument();
-
-  const [recipients, setRecipients] = useState<Recipient[]>([
-    { id: 1, name: '', email: '', role: 'Signer', designation: '' }
-  ]);
+  const { uploadedDoc, fields, fieldValues, setFieldValues, recipients } = useDocument();
   const [message, setMessage] = useState('');
   const [editingMessage, setEditingMessage] = useState(false);
   const [expiryDays, setExpiryDays] = useState('30');
@@ -40,9 +28,7 @@ export default function Send() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addRecipient = () => setRecipients(prev => [...prev, { id: Date.now(), name: '', email: '', role: 'Signer', designation: '' }]);
-  const removeRecipient = (id: number) => { if (recipients.length > 1) setRecipients(prev => prev.filter(r => r.id !== id)); };
-  const updateRecipient = (id: number, field: keyof Recipient, value: string) => setRecipients(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  // recipients are managed in Upload (DocumentContext). Send shows a read-only summary.
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -62,47 +48,23 @@ export default function Send() {
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900">Recipients</h2>
-              <button onClick={addRecipient} className="flex items-center space-x-2 text-blue-600 hover:text-blue-700 font-medium">
-                <Plus className="h-5 w-5" />
-                <span>Add Recipient</span>
-              </button>
+              <div className="text-sm text-gray-500">{recipients && recipients.length > 0 ? `${recipients.length} recipients` : 'No recipients'}</div>
             </div>
 
-            <div className="space-y-4">
-              {recipients.map((recipient, index) => (
-                <div key={recipient.id} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-semibold text-sm mt-2">{index + 1}</div>
-                  <div className="flex-1 grid md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              {recipients && recipients.length > 0 ? (
+                recipients.map((r) => (
+                  <div key={r.id} className="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-                      <input type="text" value={recipient.name} onChange={(e) => updateRecipient(recipient.id, 'name', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                      <div className="font-medium text-gray-900">{r.name || <span className="text-gray-500">(No name)</span>}</div>
+                      <div className="text-sm text-gray-600">{r.email || <span className="text-gray-500">(No email)</span>}</div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
-                      <input type="email" value={recipient.email} onChange={(e) => updateRecipient(recipient.id, 'email', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-                      <select value={recipient.role} onChange={(e) => updateRecipient(recipient.id, 'role', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                        <option value="Signer">Signer</option>
-                        <option value="Approver">Approver</option>
-                        <option value="CC">CC</option>
-                        <option value="Viewer">Viewer</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Designation</label>
-                      <input type="text" value={recipient.designation || ''} onChange={(e) => updateRecipient(recipient.id, 'designation', e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
-                    </div>
-                    {/* per-recipient hierarchy removed - use single global hierarchy checkbox below */}
+                    <div className="text-sm text-gray-500">{r.designation || '—'}</div>
                   </div>
-                  {recipients.length > 1 && (
-                    <button onClick={() => removeRecipient(recipient.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors mt-8">
-                      <X className="h-5 w-5" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="text-sm text-gray-500">No recipients added. Add recipients on the Upload page.</div>
+              )}
             </div>
           </div>
 
