@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 
 // ✅ CRITICAL FIX: Use correct worker URL
@@ -58,6 +58,17 @@ export default function Prepare() {
   const { recipients } = useDocument();
   const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string | null>(null);
 
+  // Default selected recipient: for non-admins, default to their email so they see their fields.
+  // For admins, default to null (means 'All' when rendering the select).
+  useEffect(() => {
+    if (!user) return;
+    if (user.role !== 'admin') {
+      setSelectedRecipientEmail(user.email || null);
+    } else {
+      setSelectedRecipientEmail(null);
+    }
+  }, [user]);
+
   // Place field at bottom of current page
   const handlePlaceFieldAtBottom = () => {
     if (!selectedTool) return;
@@ -70,8 +81,23 @@ export default function Prepare() {
       recipient: selectedRecipientEmail || 'Signer',
       page: currentPage
     };
+    // Admins placing a signature should not open the signing modal.
+    if (user?.role === 'admin' && newField.type === 'signature') {
+      setFields([...fields, { ...newField, completed: false }]);
+      setSelectedTool(null);
+      return;
+    }
+
     setFields([...fields, newField]);
     setActiveField(newField);
+
+    // If the field is a signature and it's assigned to the current logged-in user,
+    // open the signature modal so they can sign immediately.
+    if (newField.type === 'signature' && user?.email && newField.recipient === user.email) {
+      setSignatureModalPos({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+      setTimeout(() => setShowSignatureModal(true), 0);
+    }
+
     setSelectedTool(null);
   };
 
@@ -118,9 +144,16 @@ export default function Prepare() {
       return;
     }
 
+    // If the signer is placing a signature for themselves, open the modal immediately
+    // so they can adopt/sign right after placing the field.
     setFields([...fields, newField]);
     setActiveField(newField);
-    // Do NOT open modal here; modal will open only when field box is clicked
+    if (newField.type === 'signature' && user?.email && newField.recipient === user.email) {
+      setSignatureModalPos({ x: e.clientX, y: e.clientY + window.scrollY });
+      setTimeout(() => setShowSignatureModal(true), 0);
+    }
+
+    // For other cases (placing signatures for others or non-signature fields), do not open modal.
     setSelectedTool(null);
   };
 
@@ -128,9 +161,13 @@ export default function Prepare() {
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Only open modal for signature if not dragging, and only on double click
+  // Only open modal for signature if not dragging.
+  // Admins should not open the signature modal here (they only place/assign fields).
+  // Non-admin users may open the modal only for fields assigned to them.
   const handleFieldClick = (field: any, e: React.MouseEvent) => {
     if (draggingFieldId) return;
+
+    // Non-signature fields: open respective modals (text/date) on click
     if (field.type !== 'signature') {
       e.preventDefault();
       e.stopPropagation();
@@ -143,24 +180,29 @@ export default function Prepare() {
           setShowTextModal(true);
         }
       }, 0);
-    } else {
-      // For signature: admins should not auto-fill or see a popup — just select the box.
-      if (field.type === 'signature' && user?.role === 'admin') {
-        try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
-        // Do not set any field value; keep it uncompleted so signers can sign later.
-        setActiveField(null);
-        return;
-      }
-
-      // For non-admins, only open modal on double click
-      if (e.detail === 2) {
-        e.preventDefault();
-        e.stopPropagation();
-        setActiveField(field);
-        setSignatureModalPos({ x: e.clientX, y: e.clientY + window.scrollY });
-        setTimeout(() => setShowSignatureModal(true), 0);
-      }
+      return;
     }
+
+    // For signature fields:
+    // - Admins should not open a signature modal when clicking a signature box
+    if (user?.role === 'admin') {
+      try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
+      setActiveField(null);
+      return;
+    }
+
+    // If field is assigned to a specific recipient, only allow that recipient to sign
+    if (field.recipient && user?.email && field.recipient !== user.email) {
+      // Not the assigned recipient — ignore clicks (do not expose signature modal)
+      return;
+    }
+
+    // Open signature modal for assigned recipient (single click)
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveField(field);
+    setSignatureModalPos({ x: e.clientX, y: e.clientY + window.scrollY });
+    setTimeout(() => setShowSignatureModal(true), 0);
   };
 
   // Drag handlers for field boxes
@@ -349,6 +391,26 @@ export default function Prepare() {
           <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto">
             <div className="p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Add Fields</h2>
+              {/* Persistent recipient selector: visible to all users */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Recipient</label>
+                <select
+                  value={selectedRecipientEmail ?? (user?.role === 'admin' ? 'all' : '')}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSelectedRecipientEmail(v === 'all' ? null : v);
+                  }}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white"
+                >
+                  {user?.role === 'admin' && <option value="all">All Recipients</option>}
+                  {(recipients || []).map(r => (
+                    <option key={r.id} value={r.email}>{r.name ? `${r.name} — ${r.email}` : r.email}</option>
+                  ))}
+                  {(!recipients || recipients.length === 0) && (
+                    <option value="">No recipients</option>
+                  )}
+                </select>
+              </div>
               <div className="space-y-2 mb-8">
                 {visibleTools.map((tool) => {
                   const Icon = tool.icon;
@@ -502,7 +564,17 @@ export default function Prepare() {
 
                           {/* overlay tied to pageRef so positions use the page bounding box */}
                           <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
-                            {fields.filter(field => field.page === currentPage).map((field) => (
+                            {fields
+                              .filter(field => field.page === currentPage)
+                              .filter(field => {
+                                // Admins should see all fields. Non-admins only see fields assigned to them
+                                if (user?.role === 'admin') return true;
+                                // If no recipient assigned, show (generic fields)
+                                if (!field.recipient) return true;
+                                // Only show field if it is assigned to current user
+                                return user?.email && field.recipient === user.email;
+                              })
+                              .map((field) => (
                               <div
                                 key={field.id}
                                 style={{
