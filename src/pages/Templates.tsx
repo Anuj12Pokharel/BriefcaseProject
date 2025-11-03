@@ -21,6 +21,7 @@ function Modal({ open, onClose, title, children }: { open: boolean; onClose: () 
 
 export default function Templates() {
   const { user } = useAuth();
+  const isAdmin = user && user.role === 'admin';
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
   const [editTemplate, setEditTemplate] = useState<any>(null);
   const [cloneTemplate, setCloneTemplate] = useState<any>(null);
@@ -144,8 +145,8 @@ export default function Templates() {
           ))}
         </div>
 
-        {/* Message Templates (from ManageTemplates) - inserted below document templates list */}
-        {user && (
+        {/* Message Templates (from ManageTemplates) - only for admin */}
+        {isAdmin && (
           <div className="mt-12">
             <h2 className="text-2xl font-bold text-gray-900 mb-3">Message Templates</h2>
             <div className="bg-white p-6 rounded-xl border border-gray-200">
@@ -178,6 +179,7 @@ export default function Templates() {
             </div>
           </div>
         )}
+        
 
         {/* Floating Add New */}
         <div className="fixed bottom-8 right-8 z-50">
