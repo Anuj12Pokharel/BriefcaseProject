@@ -99,9 +99,9 @@ function Documents() {
             </div>
             <div className="space-y-3">
               {[
-                { id: 'd1', title: 'Employment Contract', status: 'Pending' },
-                { id: 'd2', title: 'NDA - Tech Partnership', status: 'In Progress' },
-                { id: 'd3', title: 'Service Agreement Q4', status: 'Pending' }
+                { id: 'd1', title: 'Employment Contract', status: 'You can sign' },
+                { id: 'd2', title: 'NDA - Tech Partnership', status: 'Placed in hierarchy order' },
+                { id: 'd3', title: 'Service Agreement Q4', status: 'You can sign' }
               ].map(doc => (
                 <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg bg-gray-50">
                   <div>
@@ -109,7 +109,11 @@ function Documents() {
                     <div className="text-sm text-gray-500">Status: {doc.status}</div>
                   </div>
                   <div>
-                    <button onClick={() => navigate('/sign', { state: { docId: doc.id, fileName: doc.title } })} className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700">Open & Sign</button>
+                    {doc.status === 'You can sign' ? (
+                      <button onClick={() => navigate('/sign', { state: { docId: doc.id, fileName: doc.title } })} className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700">Open & Sign</button>
+                    ) : (
+                      <span className="px-3 py-1 rounded-md text-sm text-gray-500">{doc.status}</span>
+                    )}
                   </div>
                 </div>
               ))}

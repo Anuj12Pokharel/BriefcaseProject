@@ -250,8 +250,20 @@ export default function Sign() {
                 <span>Decline</span>
               </button>
               <button
-                disabled={!fields.every((f: any) => f.completed)}
-                className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                onClick={() => {
+                  // Allow users to complete even if not all fields are filled.
+                  // If some fields are still empty, we open the signature modal if an active field exists,
+                  // otherwise proceed to mark document as completed (client flow may differ).
+                  if (activeField && activeField.type === 'signature') {
+                    setShowSignatureModal(true);
+                    return;
+                  }
+                  // As a fallback, mark all fields as completed to allow completion.
+                  try {
+                    setFields(fields.map((f: any) => ({ ...f, completed: true })));
+                  } catch (e) {}
+                }}
+                className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2"
               >
                 <Check className="h-5 w-5" />
                 <span>Sign & Complete</span>
@@ -272,13 +284,15 @@ export default function Sign() {
                     <div className="flex items-center space-x-2 text-sm text-gray-600">
                       <span>Page {currentPage} of {numPages}</span>
                     </div>
-                    <button
-                      onClick={addNewSignature}
-                      className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${placingSignature ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-                    >
-                      <PenTool className="h-4 w-4" />
-                      <span>{placingSignature ? 'Place signature (click document)' : 'Add Signature'}</span>
-                    </button>
+                    {user?.role === 'admin' && (
+                      <button
+                        onClick={addNewSignature}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${placingSignature ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                      >
+                        <PenTool className="h-4 w-4" />
+                        <span>{placingSignature ? 'Place signature (click document)' : 'Add Signature'}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
                 {/* Scrollable PDF Container */}

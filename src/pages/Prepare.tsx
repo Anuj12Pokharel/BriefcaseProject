@@ -53,8 +53,11 @@ export default function Prepare() {
   ];
 
   const { user } = useAuth();
-  // Show all tools to all users; admins can place signatures too.
-  const visibleTools = tools;
+  // Show signature tool only to admins (clients should not be able to add/signature fields via the tool).
+  const visibleTools = tools.filter(t => {
+    if (t.id === 'signature' && user?.role !== 'admin') return false;
+    return true;
+  });
   const { recipients } = useDocument();
   const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string | null>(null);
 
@@ -183,21 +186,7 @@ export default function Prepare() {
       return;
     }
 
-    // For signature fields:
-    // - Admins should not open a signature modal when clicking a signature box
-    if (user?.role === 'admin') {
-      try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
-      setActiveField(null);
-      return;
-    }
-
-    // If field is assigned to a specific recipient, only allow that recipient to sign
-    if (field.recipient && user?.email && field.recipient !== user.email) {
-      // Not the assigned recipient — ignore clicks (do not expose signature modal)
-      return;
-    }
-
-    // Open signature modal for assigned recipient (single click)
+    // For signature fields: open the signature modal for any user (admin or recipient)
     e.preventDefault();
     e.stopPropagation();
     setActiveField(field);
@@ -327,19 +316,17 @@ export default function Prepare() {
 
   return (
     <>
-      {user?.role !== 'admin' && (
-        <SignatureModal
-          isOpen={showSignatureModal}
-          initialPosition={signatureModalPos}
-          onClose={() => {
-            console.log('Closing signature modal');
-            setShowSignatureModal(false);
-            setActiveField(null);
-            setSignatureModalPos(null);
-          }}
-          onSave={handleSaveSignature}
-        />
-      )}
+      <SignatureModal
+        isOpen={showSignatureModal}
+        initialPosition={signatureModalPos}
+        onClose={() => {
+          console.log('Closing signature modal');
+          setShowSignatureModal(false);
+          setActiveField(null);
+          setSignatureModalPos(null);
+        }}
+        onSave={handleSaveSignature}
+      />
       <TextFieldModal
         isOpen={showTextModal}
         onClose={() => {
@@ -642,6 +629,12 @@ export default function Prepare() {
                                   </button>
                                 </div>
                                 {/* Recipient identity is intentionally hidden in the box (no name or email shown) */}
+                                {/* Show assigned recipient in small text at bottom-right of the field box */}
+                                {field.recipient && (
+                                  <div className="absolute right-2 bottom-1 text-[11px] text-gray-600 italic pointer-events-none">{
+                                    (recipients || []).find((rr: any) => rr.email === field.recipient)?.name || field.recipient
+                                  }</div>
+                                )}
                               </div>
                             ))}
                           </div>

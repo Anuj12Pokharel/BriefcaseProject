@@ -1,12 +1,14 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Stepper from '../components/Stepper';
 import { useDocument } from '../context/DocumentContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Send() {
   const navigate = useNavigate();
-  const { uploadedDoc, fields, fieldValues, setFieldValues, recipients } = useDocument();
+  const { uploadedDoc, fields, fieldValues, setFieldValues, recipients, setRecipients } = useDocument();
+  const { user } = useAuth();
   const [message, setMessage] = useState('');
   const [editingMessage, setEditingMessage] = useState(false);
   const [expiryDays, setExpiryDays] = useState('30');
@@ -16,6 +18,12 @@ export default function Send() {
   const [sendError, setSendError] = useState<string | null>(null);
   // Hierarchy signing option (single checkbox for the whole document)
   const [signInHierarchy, setSignInHierarchy] = useState(false);
+  // Reminder settings
+  const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [reminderDays, setReminderDays] = useState('3');
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const dragItemNode = useRef<HTMLElement | null>(null);
 
   // Initialize message from DocumentContext once on mount (avoid two-way loop)
   useEffect(() => {
@@ -47,21 +55,78 @@ export default function Send() {
         <div className="bg-white rounded-xl border border-gray-200 p-8 mb-6">
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Recipients</h2>
+              <div className="flex items-center space-x-4">
+                <h2 className="text-xl font-semibold text-gray-900">Recipients</h2>
+                {/* Need hierarchy option at top visible to admins */}
+                {user?.role === 'admin' && (
+                  <label className="inline-flex items-center text-sm text-gray-700">
+                    <input type="checkbox" checked={signInHierarchy} onChange={(e) => setSignInHierarchy(e.target.checked)} className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2" />
+                    <span className="font-semibold">Sign in hierarchy order</span>
+                  </label>
+                )}
+              </div>
               <div className="text-sm text-gray-500">{recipients && recipients.length > 0 ? `${recipients.length} recipients` : 'No recipients'}</div>
             </div>
 
             <div className="space-y-2">
               {recipients && recipients.length > 0 ? (
-                recipients.map((r) => (
-                  <div key={r.id} className="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-gray-900">{r.name || <span className="text-gray-500">(No name)</span>}</div>
-                      <div className="text-sm text-gray-600">{r.email || <span className="text-gray-500">(No email)</span>}</div>
+                recipients.map((r) => {
+                  // Allow admins to reorder recipients by dragging at any time.
+                  const isDraggable = user?.role === 'admin';
+                  return (
+                    <div
+                      key={r.id}
+                      draggable={isDraggable}
+                      onDragStart={(e) => {
+                        if (!isDraggable) return;
+                        setDraggingId(r.id);
+                        dragItemNode.current = e.currentTarget as HTMLElement;
+                        e.dataTransfer?.setData('text/plain', r.id);
+                        e.dataTransfer!.effectAllowed = 'move';
+                      }}
+                      onDragOver={(e) => {
+                        if (!isDraggable) return;
+                        e.preventDefault();
+                        const overId = r.id;
+                        if (overId !== draggingId) setDragOverId(overId);
+                      }}
+                      onDragLeave={() => {
+                        if (!isDraggable) return;
+                        setDragOverId(null);
+                      }}
+                      onDrop={(e) => {
+                        if (!isDraggable) return;
+                        e.preventDefault();
+                        const fromId = draggingId || e.dataTransfer.getData('text/plain');
+                        const toId = r.id;
+                        if (!fromId) return;
+                        if (fromId === toId) return;
+                        const list = [...recipients];
+                        const fromIndex = list.findIndex(x => x.id === fromId);
+                        const toIndex = list.findIndex(x => x.id === toId);
+                        if (fromIndex < 0 || toIndex < 0) return;
+                        const [moved] = list.splice(fromIndex, 1);
+                        list.splice(toIndex, 0, moved);
+                        try { setRecipients(list); } catch (err) { console.error(err); }
+                        setDraggingId(null);
+                        setDragOverId(null);
+                        dragItemNode.current = null;
+                      }}
+                      className={`p-3 bg-gray-50 rounded-lg flex items-center justify-between ${dragOverId === r.id ? 'ring-2 ring-blue-300 bg-blue-50' : ''}`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        {isDraggable && (
+                          <div className="text-gray-400 mr-2 cursor-move">☰</div>
+                        )}
+                        <div>
+                          <div className="font-medium text-gray-900">{r.name || <span className="text-gray-500">(No name)</span>}</div>
+                          <div className="text-sm text-gray-600">{r.email || <span className="text-gray-500">(No email)</span>}</div>
+                        </div>
+                      </div>
+                      <div className="text-sm text-gray-500">{r.designation || '—'}</div>
                     </div>
-                    <div className="text-sm text-gray-500">{r.designation || '—'}</div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-sm text-gray-500">No recipients added. Add recipients on the Upload page.</div>
               )}
@@ -121,17 +186,28 @@ export default function Send() {
                   <option value="90">90 days</option>
                 </select>
               </div>
-              <div className="flex items-center space-x-3 pt-7">
-                <input type="checkbox" id="reminder" defaultChecked className="w-5 h-5 text-blue-600 border-gray-300 rounded" />
-                <label htmlFor="reminder" className="text-sm font-medium text-gray-700">Send reminder emails every 3 days</label>
+              <div className="flex items-center space-x-3 pt-4">
+                <input
+                  type="checkbox"
+                  id="reminder"
+                  checked={reminderEnabled}
+                  onChange={(e) => setReminderEnabled(e.target.checked)}
+                  className="w-5 h-5 text-blue-600 border-gray-300 rounded"
+                />
+                <label htmlFor="reminder" className="text-sm font-medium text-gray-700">Send reminder emails every</label>
+                <select
+                  value={reminderDays}
+                  onChange={(e) => setReminderDays(e.target.value)}
+                  disabled={!reminderEnabled}
+                  className="px-3 py-1 border border-gray-300 rounded"
+                >
+                  {Array.from({ length: 15 }, (_, i) => (i + 1).toString()).map(d => (
+                    <option key={d} value={d}>{d} day{d !== '1' ? 's' : ''}</option>
+                  ))}
+                </select>
               </div>
             </div>
-            <div className="mt-4">
-              <label className="inline-flex items-center">
-                <input type="checkbox" checked={signInHierarchy} onChange={(e) => setSignInHierarchy(e.target.checked)} className="w-5 h-5 text-blue-600 border-gray-300 rounded" />
-                <span className="ml-3 text-sm font-medium text-gray-700">Sign in hierarchy order</span>
-              </label>
-            </div>
+            {/* Sign in hierarchy checkbox moved to the Recipients header for clarity (admins only) */}
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -156,6 +232,8 @@ export default function Send() {
                   message: message,
                   expiryDays,
                   signInHierarchy,
+                  reminderEnabled,
+                  reminderDays: Number(reminderDays),
                   fields,
                   fieldValues,
                   document: uploadedDoc,

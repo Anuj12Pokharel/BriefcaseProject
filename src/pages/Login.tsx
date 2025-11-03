@@ -3,6 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
+  // Demo credentials shown in the login UI for convenience
+  const ADMIN_EMAIL = 'admin@ourbriefcase.com';
+  const ADMIN_PASS = 'ADMIN2468';
+  const SIGNER_EMAIL = 'signer@ourbriefcase.com';
+  const SIGNER_PASS = 'Password123';
+
   const navigate = useNavigate();
   const { login } = useAuth();
   const [email, setEmail] = useState('');
@@ -54,6 +60,15 @@ export default function Login() {
         <div className="flex items-center justify-between">
           <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">Sign in</button>
           <button type="button" onClick={() => { setEmail(''); setPassword(''); }} className="text-sm text-gray-600">Reset</button>
+        </div>
+
+        {/* Demo credentials panel */}
+        <div className="mt-6 border rounded-lg p-4 bg-gray-50">
+          <h3 className="text-sm font-semibold mb-2">Demo Credentials:</h3>
+          <div className="text-sm text-gray-700">
+            <div className="mb-2"><span className="font-medium">Signer:</span> {SIGNER_EMAIL} / {SIGNER_PASS}</div>
+            <div><span className="font-medium">Admin:</span> {ADMIN_EMAIL} / {ADMIN_PASS}</div>
+          </div>
         </div>
       </form>
     </div>
