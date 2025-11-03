@@ -90,7 +90,7 @@ function Documents() {
             </div>
           </div>
         </div>
-        {/* Show assigned docs for signer */}
+  {/* Show assigned docs for signer */}
         {user?.role === 'signer' && (
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
             <div className="flex items-center justify-between mb-4">
@@ -168,6 +168,7 @@ function Documents() {
           </div>
         </div>
 
+        
         {/* Stats and overview removed per user request */}
 
         {/* Recent Activity Section (copied from Reports) */}

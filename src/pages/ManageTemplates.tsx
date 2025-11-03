@@ -121,7 +121,7 @@ export default function ManageTemplates() {
 
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-xl border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-4">Templates</h3>
+            <h3 className="font-semibold text-gray-900 mb-4">Message Templates</h3>
             <div className="mb-4">
               <button onClick={() => { setModalTitle(''); setModalBody(''); setShowAddModal(true); }} className="px-3 py-2 bg-blue-600 text-white rounded-md text-sm">Add Template</button>
             </div>
