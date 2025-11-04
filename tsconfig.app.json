@@ -21,4 +21,6 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"]
+  ,
+  "exclude": ["src/pages/Templates.tsx"]
 }

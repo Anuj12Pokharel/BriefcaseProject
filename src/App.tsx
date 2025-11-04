@@ -4,7 +4,7 @@ import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Home from './pages/Home';
 import Upload from './pages/Upload';
-import Templates from './pages/Templates';
+import Templates from './pages/TemplatesFixed';
 import ManageTemplates from './pages/ManageTemplates';
 import FullPreview from './pages/FullPreview';
 import Prepare from './pages/Prepare';
