@@ -27,22 +27,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, _password: string) => {
     // NOTE: This is a client-side mock login. Replace with real API calls for production.
-    // Test credentials (for local testing):
-  // Updated dev/test credentials (local only)
-  const ADMIN_EMAIL = 'admin@ourbriefcase.com';
-  const ADMIN_PASS = 'ADMIN2468';
+      // Test credentials (for local testing):
+      // Updated dev/test credentials (local only)
+      const SENDER_EMAIL = 'sender@ourbriefcase.com';
+      const SENDER_PASS = 'ADMIN2468';
   const SIGNER_EMAIL = 'signer@ourbriefcase.com';
   const SIGNER_PASS = 'Password123';
 
     // infer role from email and validate password
-    if (email === ADMIN_EMAIL) {
-      if (_password === ADMIN_PASS) {
+    if (email === SENDER_EMAIL) {
+      if (_password === SENDER_PASS) {
         const u: User = { email, role: 'admin' };
         setUser(u);
         localStorage.setItem('app_user', JSON.stringify(u));
         return;
       }
-      throw new Error('Invalid admin credentials');
+      throw new Error('Invalid sender credentials');
     }
 
     if (email === SIGNER_EMAIL) {

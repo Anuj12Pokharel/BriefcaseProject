@@ -20,7 +20,8 @@ export default function Send() {
   const [signInHierarchy, setSignInHierarchy] = useState(false);
   // Reminder settings
   const [reminderEnabled, setReminderEnabled] = useState(true);
-  const [reminderDays, setReminderDays] = useState('3');
+  // reminderFrequency replaces numeric days: 'hourly' | 'daily' | 'weekly' | 'monthly'
+  const [reminderFrequency, setReminderFrequency] = useState<'hourly' | 'daily' | 'weekly' | 'monthly'>('daily');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragItemNode = useRef<HTMLElement | null>(null);
@@ -57,12 +58,27 @@ export default function Send() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-4">
                 <h2 className="text-xl font-semibold text-gray-900">Recipients</h2>
-                {/* Need hierarchy option at top visible to admins */}
+                {/* Need hierarchy option at top visible to admins — render as a Yes/No choice */}
                 {user?.role === 'admin' && (
-                  <label className="inline-flex items-center text-sm text-gray-700">
-                    <input type="checkbox" checked={signInHierarchy} onChange={(e) => setSignInHierarchy(e.target.checked)} className="w-4 h-4 text-blue-600 border-gray-300 rounded mr-2" />
-                    <span className="font-semibold">Sign in hierarchy order</span>
-                  </label>
+                  <div className="flex items-center space-x-3 text-sm text-gray-700">
+                    <span className="font-semibold">Sign in hierarchy order?</span>
+                    <div className="inline-flex items-center rounded-md bg-gray-100 p-1">
+                      <button
+                        onClick={() => setSignInHierarchy(true)}
+                        aria-pressed={signInHierarchy}
+                        className={`${signInHierarchy ? 'bg-blue-600 text-white' : 'text-gray-700'} px-3 py-1 rounded-md text-sm font-medium`}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        onClick={() => setSignInHierarchy(false)}
+                        aria-pressed={!signInHierarchy}
+                        className={`${!signInHierarchy ? 'bg-blue-600 text-white' : 'text-gray-700'} ml-1 px-3 py-1 rounded-md text-sm font-medium`}
+                      >
+                        No
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
               <div className="text-sm text-gray-500">{recipients && recipients.length > 0 ? `${recipients.length} recipients` : 'No recipients'}</div>
@@ -71,8 +87,10 @@ export default function Send() {
             <div className="space-y-2">
               {recipients && recipients.length > 0 ? (
                 recipients.map((r) => {
-                  // Allow admins to reorder recipients by dragging at any time.
-                  const isDraggable = user?.role === 'admin';
+                  // Allow admins to reorder recipients only when hierarchical signing is enabled
+                  // and there is more than one recipient. If hierarchy is disabled or there
+                  // are not enough recipients, ordering UI is removed.
+                  const isDraggable = user?.role === 'admin' && signInHierarchy && (recipients && recipients.length > 1);
                   return (
                     <div
                       key={r.id}
@@ -186,7 +204,7 @@ export default function Send() {
                   <option value="90">90 days</option>
                 </select>
               </div>
-              <div className="flex items-center space-x-3 pt-4">
+                <div className="flex items-center space-x-3 pt-4">
                 <input
                   type="checkbox"
                   id="reminder"
@@ -194,16 +212,17 @@ export default function Send() {
                   onChange={(e) => setReminderEnabled(e.target.checked)}
                   className="w-5 h-5 text-blue-600 border-gray-300 rounded"
                 />
-                <label htmlFor="reminder" className="text-sm font-medium text-gray-700">Send reminder emails every</label>
+                <label htmlFor="reminder" className="text-sm font-medium text-gray-700">Send reminder emails</label>
                 <select
-                  value={reminderDays}
-                  onChange={(e) => setReminderDays(e.target.value)}
+                  value={reminderFrequency}
+                  onChange={(e) => setReminderFrequency(e.target.value as any)}
                   disabled={!reminderEnabled}
                   className="px-3 py-1 border border-gray-300 rounded"
                 >
-                  {Array.from({ length: 15 }, (_, i) => (i + 1).toString()).map(d => (
-                    <option key={d} value={d}>{d} day{d !== '1' ? 's' : ''}</option>
-                  ))}
+                  <option value="hourly">Hourly</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
                 </select>
               </div>
             </div>
@@ -233,7 +252,7 @@ export default function Send() {
                   expiryDays,
                   signInHierarchy,
                   reminderEnabled,
-                  reminderDays: Number(reminderDays),
+                  reminderFrequency,
                   fields,
                   fieldValues,
                   document: uploadedDoc,
@@ -245,6 +264,8 @@ export default function Send() {
                   setSending(false);
                   setSent(true);
                   try { setFieldValues((prev: Record<string, any>) => ({ ...prev, lastSentAt: Date.now() })); } catch (e) {}
+                  // Navigate to thank-you / success page
+                  navigate('/send/success');
                 }, 900);
               }}
               disabled={sending || sent}

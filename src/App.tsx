@@ -4,13 +4,14 @@ import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Home from './pages/Home';
 import Upload from './pages/Upload';
-import Templates from './pages/TemplatesFixed';
+import Templates from './pages/Templates';
 import ManageTemplates from './pages/ManageTemplates';
 import FullPreview from './pages/FullPreview';
 import Prepare from './pages/Prepare';
 import Sign from './pages/Sign';
 import SignAndSend from './pages/SignAndSend';
 import Send from './pages/Send';
+import SendSuccess from './pages/SendSuccess';
 import Reports from './pages/Reports';
 import Login from './pages/Login';
 
@@ -44,6 +45,7 @@ function App() {
               {/* legacy route - keep for compatibility but primary flow routes to /send */}
               <Route path="/sign-and-send" element={<RequireAuth><SignAndSend /></RequireAuth>} />
               <Route path="/send" element={<RequireAuth><Send /></RequireAuth>} />
+              <Route path="/send/success" element={<RequireAuth><SendSuccess /></RequireAuth>} />
             </Routes>
           </div>
         </Router>

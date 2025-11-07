@@ -61,16 +61,21 @@ export default function Prepare() {
   const { recipients } = useDocument();
   const [selectedRecipientEmail, setSelectedRecipientEmail] = useState<string | null>(null);
 
-  // Default selected recipient: for non-admins, default to their email so they see their fields.
-  // For admins, default to null (means 'All' when rendering the select).
+  // Default selected recipient:
+  // - non-admins: their email so they see their fields.
+  // - admins: default to the first recipient (if any) so it's selected by default.
   useEffect(() => {
     if (!user) return;
     if (user.role !== 'admin') {
       setSelectedRecipientEmail(user.email || null);
     } else {
-      setSelectedRecipientEmail(null);
+      if (recipients && recipients.length > 0) {
+        setSelectedRecipientEmail(recipients[0].email);
+      } else {
+        setSelectedRecipientEmail(null);
+      }
     }
-  }, [user]);
+  }, [user, recipients]);
 
   // Place field at bottom of current page
   const handlePlaceFieldAtBottom = () => {
@@ -378,26 +383,34 @@ export default function Prepare() {
           <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto">
             <div className="p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Add Fields</h2>
-              {/* Persistent recipient selector: visible to all users */}
+              {/* NOTE: The compact top recipient selector was removed per UX request.
+                  A persistent recipient list is rendered at the bottom of the sidebar.
+              */}
+              {/* Persistent recipients panel placed above the tools so it's easy
+                  to pick a recipient before selecting a field or the signature tool.
+              */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Recipient</label>
-                <select
-                  value={selectedRecipientEmail ?? (user?.role === 'admin' ? 'all' : '')}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setSelectedRecipientEmail(v === 'all' ? null : v);
-                  }}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white"
-                >
-                  {user?.role === 'admin' && <option value="all">All Recipients</option>}
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Recipients</h3>
+                <div className="max-h-44 overflow-y-auto space-y-2 pr-2 mb-2">
                   {(recipients || []).map(r => (
-                    <option key={r.id} value={r.email}>{r.name ? `${r.name} — ${r.email}` : r.email}</option>
+                    <button
+                      key={r.id}
+                      onClick={() => setSelectedRecipientEmail(r.email)}
+                      className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between border ${selectedRecipientEmail === r.email ? 'border-blue-500 bg-blue-50' : 'border-gray-100 bg-white'}`}
+                    >
+                      <div>
+                        <div className="font-medium text-gray-900">{r.name || r.email}</div>
+                        <div className="text-xs text-gray-500">{r.email} • {r.designation || '—'}</div>
+                      </div>
+                      {selectedRecipientEmail === r.email && <div className="text-xs text-blue-600">Selected</div>}
+                    </button>
                   ))}
                   {(!recipients || recipients.length === 0) && (
-                    <option value="">No recipients</option>
+                    <div className="text-sm text-gray-500">No recipients defined. Add recipients in Upload first.</div>
                   )}
-                </select>
+                </div>
               </div>
+
               <div className="space-y-2 mb-8">
                 {visibleTools.map((tool) => {
                   const Icon = tool.icon;
@@ -431,41 +444,20 @@ export default function Prepare() {
                   </button>
                 )}
 
-                {/* Recipient selector for admins when placing signature fields */}
-                {user?.role === 'admin' && selectedTool === 'signature' && (
-                  <div className="mt-4 p-3 border-t pt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Assign to recipient</label>
-                    <div className="space-y-2">
-                      {(recipients || []).map(r => (
-                        <button
-                          key={r.id}
-                          onClick={() => setSelectedRecipientEmail(r.email)}
-                          className={`w-full text-left px-3 py-2 rounded-md border ${selectedRecipientEmail === r.email ? 'border-blue-500 bg-blue-50' : 'border-gray-100 bg-white'}`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-medium text-gray-900">{r.name || r.email}</div>
-                              <div className="text-xs text-gray-500">{r.email} • {r.designation || '—'}</div>
-                            </div>
-                            {selectedRecipientEmail === r.email && <div className="text-xs text-blue-600">Selected</div>}
-                          </div>
-                        </button>
-                      ))}
-                      {(!recipients || recipients.length === 0) && (
-                        <div className="text-sm text-gray-500">No recipients defined. Add recipients in Upload first.</div>
-                      )}
-                      {selectedRecipientEmail && (
-                        <div className="mt-2 text-sm text-gray-600">Selected recipient: <span className="font-medium">{selectedRecipientEmail}</span></div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {/* The inline admin-only assign block was removed to avoid duplication.
+                    Use the persistent recipient list above instead.
+                */}
               </div>
 
               <div className="border-t border-gray-200 pt-6 mb-6">
                 {fields.length > 0 ? (
                   <div className="space-y-2">
-                    {fields.map((field, index) => (
+                    {/* Hide signature-type entries from the sidebar for admin users (per UX request).
+                        This removes the blue-dot "Signature 1 / 2 / ..." rows shown in the screenshot.
+                        Non-admin users still see the full list so they can manage their own fields. */}
+                    {fields
+                      .filter((f) => !(user?.role === 'admin' && f.type === 'signature'))
+                      .map((field, index) => (
                       <div key={field.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
                         <div className="flex items-center space-x-2">
                           <div className={`w-2 h-2 rounded-full ${field.completed ? 'bg-green-500' : 'bg-blue-500'}`}></div>
@@ -485,7 +477,7 @@ export default function Prepare() {
                 )}
               </div>
 
-              
+              {/* Bottom duplicate recipients panel removed per user request; only the top recipients list remains. */}
             </div>
           </div>
 

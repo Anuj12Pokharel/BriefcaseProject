@@ -6,7 +6,7 @@ import InitialModal from '../components/InitialModal';
 import TextFieldModal from '../components/TextFieldModal';
 import DateFieldModal from '../components/DateFieldModal';
 import { useDocument } from '../context/DocumentContext';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Document, Page, pdfjs } from 'react-pdf';
 
 // configure pdfjs worker
@@ -36,6 +36,7 @@ export default function Sign() {
   const { uploadedDoc, docType, fields, setFields, fieldValues, setFieldValues, setDocument } = useDocument();
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [currentSignerEmail, setCurrentSignerEmail] = useState<string | null>(null);
 
   // If the page is opened from an external link (email), the sender may include a preview URL
@@ -67,6 +68,58 @@ export default function Sign() {
   const pageRefs = useRef<{[key: number]: HTMLDivElement | null}>({});
   const [activeField, setActiveField] = useState<any>(null);
   const [placingSignature, setPlacingSignature] = useState(false);
+  const [highlightedFieldId, setHighlightedFieldId] = useState<string | null>(null);
+
+  // Helper to find signature fields assigned to this signer (case-insensitive match)
+  const findAssignedSignatures = () => {
+    const signerEmail = (currentSignerEmail || user?.email || '').toString().toLowerCase();
+    return (fields || []).filter((f: any) => f.type === 'signature' && !f.completed && (
+      !f.recipient || f.recipient === 'Signer' || (signerEmail && (f.recipient || '').toString().toLowerCase() === signerEmail)
+    )).sort((a: any, b: any) => (a.page - b.page) || (a.y - b.y));
+  };
+
+  const handleNextSignature = () => {
+    const assigned = findAssignedSignatures();
+    if (!assigned || assigned.length === 0) return;
+    let next = assigned.find((f: any) => f.page > currentPage) || assigned.find((f: any) => f.page === currentPage) || assigned[0];
+    if (!next) next = assigned[0];
+    if (!next) return;
+
+    // Scroll to the exact field position within the scroll container (center it)
+    const container = scrollContainerRef.current;
+    if (container) {
+      const pageOffset = (next.page - 1) * (PAGE_HEIGHT + PAGE_GAP);
+      const topInDoc = pageOffset + (next.y / 100) * PAGE_HEIGHT;
+      // Place the field slightly above center so the box and highlight appear a bit higher in view
+      const scrollTarget = Math.max(0, topInDoc - (container.clientHeight * 0.35));
+      container.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+    } else {
+      scrollToPage(next.page);
+    }
+
+    // After scrolling, highlight the field briefly (do NOT open modal)
+    setTimeout(() => {
+      setHighlightedFieldId(next.id);
+      // Try to ensure the highlighted field is visible in the browser viewport as well
+      try {
+        const el = document.querySelector(`[data-field-id="${next.id}"]`) as HTMLElement | null;
+        if (el) {
+          // Nudge the page so the field sits a bit lower from the top of the viewport (so it's visually higher)
+          const rect = el.getBoundingClientRect();
+          const desiredTopOffset = 120; // px from top
+          const scrollBy = rect.top - desiredTopOffset;
+          if (Math.abs(scrollBy) > 8) {
+            window.scrollBy({ top: scrollBy, behavior: 'smooth' });
+          }
+        }
+      } catch (e) {}
+      setTimeout(() => setHighlightedFieldId(null), 2400);
+    }, 450);
+  };
+
+  // NEXT button vertical offset in inches (convert to px at 96dpi)
+  const NEXT_OFFSET_INCHES = 2;
+  const NEXT_OFFSET_PX = NEXT_OFFSET_INCHES * 96;
 
   // PDF Page dimensions (standard A4 at 96 DPI)
   const PAGE_HEIGHT = 1056;
@@ -109,7 +162,12 @@ export default function Sign() {
     }
     console.log('Field clicked:', field);
     // Only allow opening signature modal if the field is assigned to this signer (or is a generic 'Signer' field)
-    const isAssignedToThis = !field.recipient || field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail);
+    // Match recipient email case-insensitively and fall back to logged-in user's email if currentSignerEmail is not set.
+    const assignedRecipient = (field.recipient || '').toString();
+    const signerEmail = (currentSignerEmail || user?.email || '').toString();
+    const isAssignedToThis = !assignedRecipient || assignedRecipient === 'Signer' || (
+      signerEmail && assignedRecipient.toLowerCase() === signerEmail.toLowerCase()
+    );
     // Admins are allowed special behavior (auto-sign)
     const isAdmin = user?.role === 'admin';
 
@@ -157,10 +215,18 @@ export default function Sign() {
         [activeField.id + '_type']: type,
         [activeField.id + '_font']: font
       });
-      setFields(fields.map((f: any) => f.id === activeField.id ? { ...f, completed: true } : f));
+      // compute updated fields so we can check completion and optionally navigate
+      const newFields = fields.map((f: any) => f.id === activeField.id ? { ...f, completed: true } : f);
+      setFields(newFields);
       setActiveField(null);
+      // If all fields are now completed, navigate to the thank-you/success page
+      try {
+        if (newFields.length > 0 && newFields.every((ff: any) => ff.completed)) {
+          navigate('/send/success');
+        }
+      } catch (e) {}
     }
-    
+
     setShowSignatureModal(false);
   };
 
@@ -237,6 +303,18 @@ export default function Sign() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Sticky NEXT button: jumps to next assigned signature and highlights its location (non-admin only) */}
+      {user?.role !== 'admin' && findAssignedSignatures().length > 0 && (
+        <button
+          onClick={handleNextSignature}
+          title="Next signature"
+          className="fixed bg-blue-600 border border-blue-700 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700 z-50 select-none"
+          style={{ left: '1rem', top: `calc(50% - ${NEXT_OFFSET_INCHES * 96}px)`, caretColor: 'transparent' }}
+          onMouseDown={(e) => e.currentTarget.focus()} /* keep focus for keyboard but avoid editable caret */
+        >
+          NEXT
+        </button>
+      )}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between">
@@ -258,9 +336,12 @@ export default function Sign() {
                     setShowSignatureModal(true);
                     return;
                   }
-                  // As a fallback, mark all fields as completed to allow completion.
+                  // As a fallback, mark all fields as completed to allow completion, then show thank you
                   try {
-                    setFields(fields.map((f: any) => ({ ...f, completed: true })));
+                    const newFields = fields.map((f: any) => ({ ...f, completed: true }));
+                    setFields(newFields);
+                    // navigate to thank-you / success page so signer sees completion
+                    navigate('/send/success');
                   } catch (e) {}
                 }}
                 className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2"
@@ -379,6 +460,7 @@ export default function Sign() {
                       {fields.map((field: any) => (
                         <div
                           key={field.id}
+                          data-field-id={field.id}
                           style={{ 
                             position: 'absolute',
                             ...getFieldPosition(field),
@@ -394,9 +476,9 @@ export default function Sign() {
                             e.stopPropagation();
                             handleFieldClick(field, e);
                           }}
-                          className={`px-3 py-2 rounded border bg-white shadow-lg hover:shadow-xl transition-all duration-200 field-container ${
-                            field.completed ? 'border-green-500 bg-green-50' : 'border-red-400 border-2 bg-red-50'
-                          }`}
+                              className={`px-3 py-2 rounded border bg-white shadow-lg hover:shadow-xl transition-all duration-200 field-container ${
+                                field.completed ? 'border-green-500 bg-green-50' : 'border-red-400 border-2 bg-red-50'
+                              } ${highlightedFieldId === field.id ? 'ring-4 ring-blue-300 ring-opacity-75' : ''}`}
                         >
                           <div className="flex items-center space-x-2 min-w-[120px]">
                             {field.type === 'signature' && (
@@ -562,7 +644,13 @@ export default function Sign() {
                     <div 
                       key={field.id} 
                       className="bg-white rounded-lg p-3 text-sm flex items-center justify-between shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                      onClick={() => scrollToPage(field.page)}
+                      onClick={() => {
+                        scrollToPage(field.page);
+                        // If this is a signature field assigned to the current signer, open the signature modal
+                        if (field.type === 'signature') {
+                          handleFieldClick(field as any);
+                        }
+                      }}
                     >
                       <div className="flex items-center space-x-2">
                         <div className={`w-3 h-3 rounded-full ${field.completed ? 'bg-green-500' : 'bg-red-500'}`}></div>

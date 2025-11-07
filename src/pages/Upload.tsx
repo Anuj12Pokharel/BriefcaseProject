@@ -7,6 +7,10 @@ import Stepper from '../components/Stepper';
 
 function Upload() {
   const navigate = useNavigate();
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
 
@@ -165,9 +169,17 @@ function Upload() {
 
   const handleContinue = () => {
     if (!uploadedFile) return;
-    // Store the real File object in context and also store a preview URL if needed
-    // (adjust according to your DocumentContext API — here we pass file and a preview)
+    // Require recipients for admins before proceeding to Prepare
     try {
+      if (user?.role === 'admin') {
+        const validRecipients = (recipients || []).filter(r => r.name && r.name.trim() && r.email && r.email.trim() && isValidEmail(r.email));
+        if (validRecipients.length === 0) {
+          setError('Please add at least one recipient with a valid name and email before continuing.');
+          return;
+        }
+      }
+
+      // Store the real File object in context and also store a preview URL if needed
       setDocument(uploadedFile, 'pdf'); // pass the File; change if your context expects something else
       setFieldValues((prev: Record<string, any>) => ({
         ...prev,
