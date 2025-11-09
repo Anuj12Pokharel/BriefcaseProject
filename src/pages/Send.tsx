@@ -20,8 +20,9 @@ export default function Send() {
   const [signInHierarchy, setSignInHierarchy] = useState(false);
   // Reminder settings
   const [reminderEnabled, setReminderEnabled] = useState(true);
-  // reminderFrequency replaces numeric days: 'hourly' | 'daily' | 'weekly' | 'monthly'
-  const [reminderFrequency, setReminderFrequency] = useState<'hourly' | 'daily' | 'weekly' | 'monthly'>('daily');
+  // Reminder amount and unit (sender can choose 1-20 before the selected unit)
+  const [reminderAmount, setReminderAmount] = useState<number>(1);
+  const [reminderUnit, setReminderUnit] = useState<'hours' | 'days' | 'weeks'>('days');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragItemNode = useRef<HTMLElement | null>(null);
@@ -214,15 +215,24 @@ export default function Send() {
                 />
                 <label htmlFor="reminder" className="text-sm font-medium text-gray-700">Send reminder emails</label>
                 <select
-                  value={reminderFrequency}
-                  onChange={(e) => setReminderFrequency(e.target.value as any)}
+                  value={reminderAmount}
+                  onChange={(e) => setReminderAmount(Number(e.target.value))}
+                  disabled={!reminderEnabled}
+                  className="px-3 py-1 border border-gray-300 rounded mr-2"
+                >
+                  {[...Array(20)].map((_, i) => (
+                    <option key={i+1} value={i+1}>{i+1}</option>
+                  ))}
+                </select>
+                <select
+                  value={reminderUnit}
+                  onChange={(e) => setReminderUnit(e.target.value as any)}
                   disabled={!reminderEnabled}
                   className="px-3 py-1 border border-gray-300 rounded"
                 >
-                  <option value="hourly">Hourly</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                  <option value="weeks">Weeks</option>
                 </select>
               </div>
             </div>
@@ -252,7 +262,8 @@ export default function Send() {
                   expiryDays,
                   signInHierarchy,
                   reminderEnabled,
-                  reminderFrequency,
+                  reminderAmount,
+                  reminderUnit,
                   fields,
                   fieldValues,
                   document: uploadedDoc,
