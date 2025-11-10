@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 
 type Role = 'admin' | 'signer';
 
@@ -16,14 +16,16 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-
-  useEffect(() => {
+  // Initialize synchronously from localStorage to avoid a render where `user` is null
+  // which can trigger protected-route redirects during the first render (new tab issues).
+  const [user, setUser] = useState<User | null>(() => {
     try {
       const raw = localStorage.getItem('app_user');
-      if (raw) setUser(JSON.parse(raw));
-    } catch (e) {}
-  }, []);
+      return raw ? (JSON.parse(raw) as User) : null;
+    } catch (e) {
+      return null;
+    }
+  });
 
   const login = async (email: string, _password: string) => {
     // NOTE: This is a client-side mock login. Replace with real API calls for production.

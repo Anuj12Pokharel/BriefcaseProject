@@ -582,7 +582,14 @@ export default function Prepare() {
                                         </span>
                                       )
                                     ) : (
-                                      <span className="text-sm font-medium text-blue-600 whitespace-nowrap">✍️ {field.type}</span>
+                                        <div className="flex flex-col items-start">
+                                          <div className="text-sm font-medium text-gray-800">Signature</div>
+                                          <div className="relative w-44 h-8 mt-1">
+                                            {/* small signature box placed above a horizontal line */}
+                                            <div className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-7 bg-white border border-gray-300 rounded-sm shadow-sm" />
+                                            <div className="absolute left-0 right-0 bottom-1 h-px bg-gray-400" />
+                                          </div>
+                                        </div>
                                     )
                                   )}
                                   {field.type === 'date' && (

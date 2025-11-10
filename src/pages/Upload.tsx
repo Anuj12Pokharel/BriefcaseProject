@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Upload as UploadIcon, FileText, X, ArrowRight, Users, Plus } from 'lucide-react';
+import ContactsModal from '../components/ContactsModal';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDocument } from '../context/DocumentContext';
@@ -39,6 +40,8 @@ function isValidEmail(email: string) {
 
   const { setDocument, setFieldValues, uploadedDoc, fieldValues, recipients, setRecipients } = useDocument();
   const { user } = useAuth();
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [saveToContactsMap, setSaveToContactsMap] = useState<Record<string, boolean>>({});
 
   // Configuration
   const MAX_FILE_SIZE_MB = 25; // adjust if needed
@@ -167,6 +170,9 @@ function isValidEmail(email: string) {
     fileInputRef.current?.click();
   };
 
+  // NOTE: The explicit 'Save selected to Contacts' button was removed per request.
+  // keep `saveToContactsMap` so the checkbox state remains available if desired.
+
   const handleContinue = () => {
     if (!uploadedFile) return;
     // Require recipients for admins before proceeding to Prepare
@@ -177,6 +183,37 @@ function isValidEmail(email: string) {
           setError('Please add at least one recipient with a valid name and email before continuing.');
           return;
         }
+      }
+
+      // Save any recipients that have their "Save to contacts" checkbox checked
+      try {
+        const toSave = (recipients || []).filter((r: any) => saveToContactsMap[r.id]);
+        if (toSave && toSave.length > 0) {
+          const validToSave = toSave.filter((r: any) => r.name && r.name.trim() && r.email && r.email.trim() && isValidEmail(r.email));
+          const raw = localStorage.getItem('contacts');
+          const existing = raw ? JSON.parse(raw) : [];
+          const map = new Map<string, any>();
+          for (const c of existing) {
+            if (c && c.email) map.set((c.email || '').toString().toLowerCase(), c);
+          }
+          for (const r of validToSave) {
+            const key = (r.email || '').toString().toLowerCase();
+            if (!map.has(key)) {
+              const id = `c_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+              map.set(key, { id, name: r.name, email: r.email, designation: r.designation || '' });
+            }
+          }
+          const merged = Array.from(map.values());
+          localStorage.setItem('contacts', JSON.stringify(merged));
+          // clear saved flags for those that were saved
+          setSaveToContactsMap(prev => {
+            const copy = { ...prev };
+            for (const r of validToSave) delete copy[r.id];
+            return copy;
+          });
+        }
+      } catch (e) {
+        console.error('Failed to save selected contacts', e);
       }
 
       // Store the real File object in context and also store a preview URL if needed
@@ -323,24 +360,38 @@ function isValidEmail(email: string) {
                     <div className="mt-6">
                       <div className="flex items-center justify-between mb-2">
                         <h4 className="font-semibold text-gray-900">Recipients <span className="text-sm text-gray-500">({recipients.length})</span></h4>
-                        <button
-                          onClick={() => {
-                            const id = `r_${Date.now()}`;
-                            setRecipients([...(recipients || []), { id, name: '', email: '', designation: '' }]);
-                          }}
-                          className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm"
-                        >
-                          <Plus className="h-4 w-4 mr-2" /> Add Recipient
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <button onClick={() => setContactsOpen(true)} className="inline-flex items-center px-3 py-1.5 bg-white border rounded-md text-sm">Contacts</button>
+                          <button
+                            onClick={() => {
+                              const id = `r_${Date.now()}`;
+                              setRecipients([...(recipients || []), { id, name: '', email: '', designation: '' }]);
+                              setSaveToContactsMap(prev => ({ ...prev, [id]: false }));
+                            }}
+                            className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm"
+                          >
+                            <Plus className="h-4 w-4 mr-2" /> Add Recipient
+                          </button>
+                          
+                        </div>
                       </div>
 
                       <div className="space-y-3">
                         {(recipients || []).map((r, idx) => (
                           <div key={r.id} className="p-3 border border-gray-100 rounded-md bg-gray-50">
                             <div className="flex items-center justify-between mb-2">
-                              <div className="text-sm font-medium">Recipient {idx + 1}</div>
+                              <div className="flex items-center space-x-3">
+                                <div className="text-sm font-medium">Recipient {idx + 1}</div>
+                                <label className="text-sm flex items-center space-x-2">
+                                  <input type="checkbox" checked={!!saveToContactsMap[r.id]} onChange={(e) => setSaveToContactsMap(prev => ({ ...prev, [r.id]: e.target.checked }))} />
+                                  <span className="text-xs">Save to contacts</span>
+                                </label>
+                              </div>
                               <button
-                                onClick={() => setRecipients(recipients.filter(rr => rr.id !== r.id))}
+                                onClick={() => {
+                                  setRecipients(recipients.filter(rr => rr.id !== r.id));
+                                  setSaveToContactsMap(prev => { const c = { ...prev }; delete c[r.id]; return c; });
+                                }}
                                 className="text-red-600 hover:text-red-800 text-sm"
                               >Remove</button>
                             </div>
@@ -369,6 +420,7 @@ function isValidEmail(email: string) {
                             </div>
                           </div>
                         ))}
+                        
                         {recipients.length === 0 && (
                           <div className="text-sm text-gray-500">No recipients added yet.</div>
                         )}
@@ -508,6 +560,9 @@ function isValidEmail(email: string) {
           </div>
         </div>
       )}
+
+  {/* Contacts modal */}
+  <ContactsModal isOpen={contactsOpen} onClose={() => setContactsOpen(false)} />
 
       
     </div>

@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import Upload from './pages/Upload';
 import Templates from './pages/Templates';
 import ManageTemplates from './pages/ManageTemplates';
+import ManageContacts from './pages/ManageContacts';
 import FullPreview from './pages/FullPreview';
 import Prepare from './pages/Prepare';
 import Sign from './pages/Sign';
@@ -35,6 +36,7 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/templates" element={<Templates />} />
               <Route path="/manage-templates" element={<ManageTemplates />} />
+              <Route path="/manage-contacts" element={<RequireAuth><ManageContacts /></RequireAuth>} />
               <Route path="/reports" element={<Reports />} />
 
               {/* Protected pages: require authentication */}

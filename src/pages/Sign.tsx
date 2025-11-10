@@ -74,6 +74,17 @@ export default function Sign() {
   const [signatureZoom, setSignatureZoom] = useState<{[key: string]: number}>({});
   const dragRef = useRef<{ id: string | null; page: number | null; dragging: boolean; pageRect: DOMRect | null }>({ id: null, page: null, dragging: false, pageRect: null });
 
+  // Keep signature zoom constant at 220% for all signature previews.
+  useEffect(() => {
+    if (!fields) return;
+    const map: { [key: string]: number } = {};
+    (fields || []).forEach((f: any) => {
+      if (f.type === 'signature') map[f.id] = 2.2; // 220%
+    });
+    setSignatureZoom(map);
+    // Run whenever fields change so newly added fields get 220% zoom.
+  }, [fields]);
+
   // Drag handlers for signer to move their signature overlay
   function handleDragMove(ev: any) {
     if (!dragRef.current.dragging || !dragRef.current.id) return;
@@ -243,7 +254,13 @@ export default function Sign() {
       setTimeout(() => setShowInitialModal(true), 0);
     }
     else if (field.type === 'date') {
-      setTimeout(() => setShowDateModal(true), 0);
+      // Auto-fill current date (no date picker) for both sender and signer
+      try {
+        const today = new Date().toLocaleDateString();
+        setFieldValues((prev: any) => ({ ...prev, [field.id]: today }));
+        setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: true } : f));
+      } catch (e) {}
+      setActiveField(null);
     }
     else if (field.type === 'text') {
       setTimeout(() => setShowTextModal(true), 0);
@@ -598,7 +615,11 @@ export default function Sign() {
                       {fields.map((field: any) => {
                         // For non-admin (signer) users with signature fields: show signature-only display (no border, no labels)
                         const isSignerSignatureField = user?.role !== 'admin' && field.type === 'signature' && fieldValues[field.id];
-                        const zoomLevel = signatureZoom[field.id] || 1;
+                        // per-field zoom (constant 220% = 2.2)
+                        const zoomLevel = signatureZoom[field.id] || 2.2;
+                        // signer flag and signer-date-specific flag to alter rendering (no outline/page# for signer date fields)
+                        const isSigner = user?.role !== 'admin';
+                        const isSignerDateField = isSigner && field.type === 'date';
                         
                         // Hide field if onlyShowFieldId mode is active and this isn't the target field
                         if (onlyShowFieldId && field.id !== onlyShowFieldId) return null;
@@ -624,59 +645,65 @@ export default function Sign() {
                                 handleFieldClick(field, e);
                               }
                             }}
-                            className={isSignerSignatureField ? 'relative group' : `px-3 py-2 rounded border bg-white shadow-lg hover:shadow-xl transition-all duration-200 field-container ${
-                              field.completed ? 'border-green-500 bg-green-50' : 'border-red-400 border-2 bg-red-50'
-                            } ${highlightedFieldId === field.id ? 'ring-4 ring-blue-300 ring-opacity-75' : ''}`}
+                            className={isSignerSignatureField ? 'relative group' : (
+                              isSignerDateField ? 'px-0 py-0 bg-transparent shadow-none' : `px-3 py-2 rounded border bg-white shadow-lg hover:shadow-xl transition-all duration-200 field-container ${
+                                field.completed ? 'border-green-500 bg-green-50' : 'border-red-400 border-2 bg-red-50'
+                              } ${highlightedFieldId === field.id ? 'ring-4 ring-blue-300 ring-opacity-75' : ''}`
+                            )}
                           >
                             {isSignerSignatureField ? (
-                              // Signature-only display for signers: no border, no labels, just the signature image/text with zoom controls
+                              // Signer view: show labeled signature box above a horizontal line (dash), keep drag + zoom
                               <>
-                                <div
-                                  onMouseDown={(e) => startDrag(field, e)}
-                                  onTouchStart={(e) => startDrag(field, e)}
-                                  style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top left', cursor: 'grab' }}
-                                >
-                                  {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
-                                    <img src={fieldValues[field.id]} alt="Signature" className="h-16 max-w-full object-contain" style={{ minHeight: '64px' }} />
-                                  ) : (
-                                    <span 
-                                      className="text-3xl whitespace-nowrap"
-                                      style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}
+                                <div className="flex items-end space-x-6">
+                                  <div className="text-sm text-gray-700 font-bold whitespace-nowrap">Signature</div>
+                                  <div className="flex flex-col items-center">
+                                    <div
+                                      onMouseDown={(e) => startDrag(field, e)}
+                                      onTouchStart={(e) => startDrag(field, e)}
+                                      // Move signature further right into the pink area and nudge slightly more downward for 220% zoom
+                                      style={{ transform: `translateX(28px) translateY(${(zoomLevel - 1) * 18}px) scale(${zoomLevel})`, transformOrigin: 'center bottom', cursor: 'grab' }}
+                                      className="flex items-end justify-center w-44 h-10"
                                     >
-                                      {fieldValues[field.id]}
-                                    </span>
-                                  )}
+                                      {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
+                                        <img src={fieldValues[field.id]} alt="Signature" className="max-h-10 max-w-full object-contain" />
+                                      ) : (
+                                        <span
+                                          className="text-lg whitespace-nowrap"
+                                          style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}
+                                        >
+                                          {fieldValues[field.id]}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {/* horizontal dash line centered under the signature box */}
+                                    <div className="w-24 h-px bg-gray-400 mt-0" />
+                                  </div>
                                 </div>
                                 {/* Zoom controls - show on hover */}
                                 <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 bg-white/90 rounded px-2 py-1 shadow-md" style={{ transform: 'translateX(100%)' }}>
+                                  {/* Zoom locked at 220% — controls disabled */}
                                   <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSignatureZoom(prev => ({ ...prev, [field.id]: Math.max(0.5, (prev[field.id] || 1) - 0.1) }));
-                                    }}
-                                    className="px-2 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded"
-                                    title="Zoom out"
+                                    onClick={(e) => { e.stopPropagation(); }}
+                                    className="px-2 py-1 text-sm bg-gray-100 opacity-50 cursor-not-allowed rounded"
+                                    title="Zoom locked"
+                                    disabled
                                   >
                                     −
                                   </button>
                                   <span className="text-xs text-gray-600 px-1">{Math.round(zoomLevel * 100)}%</span>
                                   <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSignatureZoom(prev => ({ ...prev, [field.id]: Math.min(3, (prev[field.id] || 1) + 0.1) }));
-                                    }}
-                                    className="px-2 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded"
-                                    title="Zoom in"
+                                    onClick={(e) => { e.stopPropagation(); }}
+                                    className="px-2 py-1 text-sm bg-gray-100 opacity-50 cursor-not-allowed rounded"
+                                    title="Zoom locked"
+                                    disabled
                                   >
                                     +
                                   </button>
                                   <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSignatureZoom(prev => ({ ...prev, [field.id]: 1 }));
-                                    }}
-                                    className="px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded"
-                                    title="Reset zoom"
+                                    onClick={(e) => { e.stopPropagation(); }}
+                                    className="px-2 py-1 text-xs bg-gray-300 text-gray-700 opacity-50 cursor-not-allowed rounded"
+                                    title="Zoom locked"
+                                    disabled
                                   >
                                     Reset
                                   </button>
@@ -710,9 +737,14 @@ export default function Sign() {
                                       <span className="text-sm font-medium text-red-600">Initial</span>
                                   )}
                                   {field.type === 'date' && (
-                                    fieldValues[field.id] ? 
-                                      <span className="text-sm">{fieldValues[field.id]}</span> : 
-                                      <span className="text-sm font-medium text-red-600">📅 Date</span>
+                                    // Render a labeled date with the date centered above a dashed line
+                                    <div className="flex items-end space-x-4">
+                                      <div className="text-sm text-gray-700 font-medium whitespace-nowrap">Date</div>
+                                      <div className="flex flex-col items-center">
+                                        <div className="text-sm text-gray-800">{fieldValues[field.id] || new Date().toLocaleDateString()}</div>
+                                        <div className="w-48 border-b border-gray-400 border-dashed mt-1" />
+                                      </div>
+                                    </div>
                                   )}
                                   {field.type === 'text' && (
                                     fieldValues[field.id] ? 
@@ -728,9 +760,11 @@ export default function Sign() {
                                     />
                                   )}
                                 </div>
-                                <div className="text-xs text-gray-500 mt-1 text-center">
-                                  {((field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail) || user?.role === 'admin') ? 'Your field • ' : '')}Page {field.page}
-                                </div>
+                                {!isSignerDateField && (
+                                  <div className="text-xs text-gray-500 mt-1 text-center">
+                                    Page {field.page}
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>
@@ -756,7 +790,7 @@ export default function Sign() {
                             className="bg-white border-2 border-blue-500 rounded-lg shadow-lg p-2 hover:shadow-xl transition-all duration-200"
                           >
                             <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs text-gray-500">Signature • Page {sig.page}</span>
+                              <span className="text-xs text-gray-500">Page {sig.page}</span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
