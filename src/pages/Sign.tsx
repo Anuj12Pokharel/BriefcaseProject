@@ -70,71 +70,25 @@ export default function Sign() {
   const [activeField, setActiveField] = useState<any>(null);
   const [placingSignature, setPlacingSignature] = useState(false);
   const [highlightedFieldId, setHighlightedFieldId] = useState<string | null>(null);
-  const [onlyShowFieldId, setOnlyShowFieldId] = useState<string | null>(null);
-  const [signatureZoom, setSignatureZoom] = useState<{[key: string]: number}>({});
-  const dragRef = useRef<{ id: string | null; page: number | null; dragging: boolean; pageRect: DOMRect | null }>({ id: null, page: null, dragging: false, pageRect: null });
+  const [onlyShowFieldId] = useState<string | null>(null);
+  const dragRef = useRef<{ id: string | null; page: number | null; dragging: boolean; pageRect: DOMRect | null; startX?: number; startY?: number }>({ id: null, page: null, dragging: false, pageRect: null });
+  const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isDraggingRef = useRef<boolean>(false);
+  
 
-  // Keep signature zoom constant at 220% for all signature previews.
-  useEffect(() => {
-    if (!fields) return;
-    const map: { [key: string]: number } = {};
-    (fields || []).forEach((f: any) => {
-      if (f.type === 'signature') map[f.id] = 2.2; // 220%
+  // Remove a field (and its stored values) by id
+  const removeField = (fieldId: string) => {
+    setFields((prev: any) => prev.filter((f: any) => f.id !== fieldId));
+    setFieldValues((prev: any) => {
+      const copy = { ...prev } as any;
+      delete copy[fieldId];
+      delete copy[fieldId + '_type'];
+      delete copy[fieldId + '_font'];
+      return copy;
     });
-    setSignatureZoom(map);
-    // Run whenever fields change so newly added fields get 220% zoom.
-  }, [fields]);
-
-  // Drag handlers for signer to move their signature overlay
-  function handleDragMove(ev: any) {
-    if (!dragRef.current.dragging || !dragRef.current.id) return;
-    try {
-      ev.preventDefault?.();
-    } catch (e) {}
-    const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
-    const clientY = ev.touches ? ev.touches[0].clientY : ev.clientY;
-    const rect = dragRef.current.pageRect || (dragRef.current.page ? pageRefs.current[dragRef.current.page]?.getBoundingClientRect() : null);
-    if (!rect) return;
-    let relX = ((clientX - rect.left) / rect.width) * 100;
-    let relY = ((clientY - rect.top) / rect.height) * 100;
-    relX = Math.max(0, Math.min(100, relX));
-    relY = Math.max(0, Math.min(100, relY));
-    setFields((prev: any[]) => prev.map((f: any) => f.id === dragRef.current.id ? { ...f, x: relX, y: relY } : f));
-  }
-
-  function handleDragEnd(_ev?: any) {
-    dragRef.current.dragging = false;
-    dragRef.current.id = null;
-    dragRef.current.page = null;
-    dragRef.current.pageRect = null;
-    try {
-      document.removeEventListener('mousemove', handleDragMove as any);
-      document.removeEventListener('mouseup', handleDragEnd as any);
-      document.removeEventListener('touchmove', handleDragMove as any);
-      document.removeEventListener('touchend', handleDragEnd as any);
-    } catch (e) {}
-  }
-
-  const startDrag = (field: any, e: React.MouseEvent | React.TouchEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const pageEl = pageRefs.current[field.page];
-    if (!pageEl) return;
-    const rect = pageEl.getBoundingClientRect();
-    dragRef.current = { id: field.id, page: field.page, dragging: true, pageRect: rect };
-    document.addEventListener('mousemove', handleDragMove as any);
-    document.addEventListener('mouseup', handleDragEnd as any);
-    document.addEventListener('touchmove', handleDragMove as any, { passive: false } as any);
-    document.addEventListener('touchend', handleDragEnd as any);
   };
 
-  // Helper to find signature fields assigned to this signer (case-insensitive match)
-  const findAssignedSignatures = () => {
-    const signerEmail = (currentSignerEmail || user?.email || '').toString().toLowerCase();
-    return (fields || []).filter((f: any) => f.type === 'signature' && !f.completed && (
-      !f.recipient || f.recipient === 'Signer' || (signerEmail && (f.recipient || '').toString().toLowerCase() === signerEmail)
-    )).sort((a: any, b: any) => (a.page - b.page) || (a.y - b.y));
-  };
+  // (Removed per-field zoom state; signer/admin rendering doesn't require dynamic zoom here)
 
   const handleNextSignature = () => {
     const assigned = findAssignedSignatures();
@@ -177,7 +131,6 @@ export default function Sign() {
 
   // NEXT button vertical offset in inches (convert to px at 96dpi)
   const NEXT_OFFSET_INCHES = 2;
-  const NEXT_OFFSET_PX = NEXT_OFFSET_INCHES * 96;
 
   // PDF Page dimensions (standard A4 at 96 DPI)
   const PAGE_HEIGHT = 1056;
@@ -214,6 +167,10 @@ export default function Sign() {
   };
 
   const handleFieldClick = (field: any, e?: MouseEvent) => {
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      return;
+    }
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -273,14 +230,47 @@ export default function Sign() {
 
   const handleSaveSignature = (signature: string, type: string, font?: string) => {
     if (activeField) {
-      setFieldValues({
+      const newFieldValues = {
         ...fieldValues,
         [activeField.id]: signature,
         [activeField.id + '_type']: type,
         [activeField.id + '_font']: font
+      };
+
+      // Auto-fill any uncompleted date fields assigned to this signer with today's date
+      const signerEmail = (currentSignerEmail || user?.email || '').toString().toLowerCase();
+      const today = new Date().toLocaleDateString();
+      (fields || []).forEach((f: any) => {
+        if (f.type === 'date' && !f.completed) {
+          // Check if this date field is assigned to this signer
+          const assignedRecipient = (f.recipient || '').toString();
+          const isAssignedToThis = !assignedRecipient || assignedRecipient === 'Signer' || (
+            signerEmail && assignedRecipient.toLowerCase() === signerEmail.toLowerCase()
+          );
+          if (isAssignedToThis && !newFieldValues[f.id]) {
+            newFieldValues[f.id] = today;
+          }
+        }
       });
+
+      setFieldValues(newFieldValues);
       // compute updated fields so we can check completion and optionally navigate
-      const newFields = fields.map((f: any) => f.id === activeField.id ? { ...f, completed: true } : f);
+      const newFields = fields.map((f: any) => {
+        if (f.id === activeField.id) {
+          return { ...f, completed: true };
+        }
+        // Mark assigned date fields as completed if they were just auto-filled
+        if (f.type === 'date' && !f.completed) {
+          const assignedRecipient = (f.recipient || '').toString();
+          const isAssignedToThis = !assignedRecipient || assignedRecipient === 'Signer' || (
+            signerEmail && assignedRecipient.toLowerCase() === signerEmail.toLowerCase()
+          );
+          if (isAssignedToThis) {
+            return { ...f, completed: true };
+          }
+        }
+        return f;
+      });
       setFields(newFields);
       setActiveField(null);
     }
@@ -387,7 +377,7 @@ export default function Sign() {
       }
 
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -439,6 +429,57 @@ export default function Sign() {
       left: `${field.x}%`,
       top: `${pageOffset + topPercentInPage}px`
     };
+  };
+
+  // Find signatures assigned to current signer (non-admin)
+  const findAssignedSignatures = () => {
+    const signerEmail = (currentSignerEmail || user?.email || '').toString().toLowerCase();
+    return fields.filter((f: any) => {
+      if (f.type !== 'signature') return false;
+      const assigned = (f.recipient || '').toString();
+      if (!assigned || assigned === 'Signer') return true;
+      return signerEmail && assigned.toLowerCase() === signerEmail;
+    });
+  };
+
+  // Admin-only: start dragging a field with pointer events
+  const startDrag = (field: any, e: React.PointerEvent) => {
+    if (user?.role !== 'admin') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const pageEl = pageRefs.current[field.page];
+    if (!pageEl) return;
+    const pageRect = pageEl.getBoundingClientRect();
+    dragRef.current = { id: field.id, page: field.page, dragging: true, pageRect, startX: e.clientX, startY: e.clientY };
+    const fieldEl = e.currentTarget as HTMLElement;
+    const rect = fieldEl.getBoundingClientRect();
+    dragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    isDraggingRef.current = false;
+    try { (e.currentTarget as Element).setPointerCapture?.(e.pointerId); } catch {}
+    window.addEventListener('pointermove', handleDragMove);
+    window.addEventListener('pointerup', handleDragEnd);
+  };
+
+  const handleDragMove = (e: PointerEvent) => {
+    const d = dragRef.current;
+    if (!d.dragging || !d.pageRect || !d.id) return;
+    e.preventDefault();
+    const xInPage = e.clientX - d.pageRect.left - dragOffsetRef.current.x;
+    const yInPage = e.clientY - d.pageRect.top - dragOffsetRef.current.y;
+    const clampedX = Math.min(Math.max(0, xInPage), PAGE_WIDTH);
+    const clampedY = Math.min(Math.max(0, yInPage), PAGE_HEIGHT);
+    const percentX = (clampedX / PAGE_WIDTH) * 100;
+    const percentY = (clampedY / PAGE_HEIGHT) * 100;
+    setFields((prev: any) => prev.map((f: any) => f.id === d.id ? { ...f, x: percentX, y: percentY } : f));
+    isDraggingRef.current = true;
+  };
+
+  const handleDragEnd = (_e: PointerEvent) => {
+    const d = dragRef.current;
+    if (!d.dragging) return;
+    dragRef.current = { id: null, page: null, dragging: false, pageRect: null };
+    window.removeEventListener('pointermove', handleDragMove);
+    window.removeEventListener('pointerup', handleDragEnd);
   };
 
   // PDF load success handler
@@ -615,8 +656,9 @@ export default function Sign() {
                       {fields.map((field: any) => {
                         // For non-admin (signer) users with signature fields: show signature-only display (no border, no labels)
                         const isSignerSignatureField = user?.role !== 'admin' && field.type === 'signature' && fieldValues[field.id];
-                        // per-field zoom (constant 220% = 2.2)
-                        const zoomLevel = signatureZoom[field.id] || 2.2;
+                        // Allow moving only for admins
+                        const canMove = user?.role === 'admin';
+                        // per-field zoom (constant 220% = 2.2) - reserved for future preview scaling
                         // signer flag and signer-date-specific flag to alter rendering (no outline/page# for signer date fields)
                         const isSigner = user?.role !== 'admin';
                         const isSignerDateField = isSigner && field.type === 'date';
@@ -632,138 +674,132 @@ export default function Sign() {
                               position: 'absolute',
                               ...getFieldPosition(field),
                               zIndex: 200, 
-                              cursor: (user?.role === 'admin' || !field.recipient || field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail)) ? 'pointer' : 'not-allowed',
+                              cursor: (user?.role === 'admin' && (field.type === 'signature' || field.type === 'date')) ? (dragRef.current.dragging && dragRef.current.id === field.id ? 'grabbing' : 'grab') : ((user?.role === 'admin' || !field.recipient || field.recipient === 'Signer' || (currentSignerEmail && field.recipient === currentSignerEmail)) ? 'pointer' : 'not-allowed'),
                               pointerEvents: 'auto',
                               width: 'auto',
-                              minWidth: isSignerSignatureField ? 'auto' : '120px'
+                              minWidth: isSignerSignatureField ? 'auto' : '120px',
+                              // Larger padding for easier grabbing
+                              padding: (user?.role === 'admin' && (field.type === 'signature' || field.type === 'date')) ? '16px' : undefined,
+                              caretColor: 'transparent',
+                              userSelect: 'none'
                             }}
                             onClick={(e) => {
                               // If the field isn't assigned to this signer and not admin, clicks are ignored due to pointerEvents 'none'
-                              if (!isSignerSignatureField) {
+                              // Also ignore clicks if we just started a drag operation
+                              if (!isSignerSignatureField && !dragRef.current.dragging) {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 handleFieldClick(field, e);
                               }
                             }}
+                            onPointerDown={user?.role === 'admin' ? ((e) => startDrag(field, e)) : undefined}
                             className={isSignerSignatureField ? 'relative group' : (
                               isSignerDateField ? 'px-0 py-0 bg-transparent shadow-none' : `px-3 py-2 rounded border bg-white shadow-lg hover:shadow-xl transition-all duration-200 field-container ${
                                 field.completed ? 'border-green-500 bg-green-50' : 'border-red-400 border-2 bg-red-50'
-                              } ${highlightedFieldId === field.id ? 'ring-4 ring-blue-300 ring-opacity-75' : ''}`
+                              } ${highlightedFieldId === field.id ? 'ring-4 ring-blue-300 ring-opacity-75' : ''} ${
+                                dragRef.current.dragging && dragRef.current.id === field.id ? 'ring-4 ring-blue-500 scale-110 shadow-2xl' : ''
+                              }`
                             )}
                           >
+                            {user?.role === 'admin' && (
+                              <button
+                                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeField(field.id);
+                                }}
+                                className="absolute top-1 right-1 z-50 flex items-center justify-center w-6 h-6 bg-white border border-gray-300 rounded-full shadow-sm text-gray-600 hover:text-red-600 hover:border-red-400"
+                                title="Remove field"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                             {isSignerSignatureField ? (
-                              // Signer view: show labeled signature box above a horizontal line (dash), keep drag + zoom
                               <>
-                                <div className="flex items-end space-x-6">
-                                  <div className="text-sm text-gray-700 font-bold whitespace-nowrap">Signature</div>
-                                  <div className="flex flex-col items-center">
-                                    <div
-                                      onMouseDown={(e) => startDrag(field, e)}
-                                      onTouchStart={(e) => startDrag(field, e)}
-                                      // Move signature further right into the pink area and nudge slightly more downward for 220% zoom
-                                      style={{ transform: `translateX(28px) translateY(${(zoomLevel - 1) * 18}px) scale(${zoomLevel})`, transformOrigin: 'center bottom', cursor: 'grab' }}
-                                      className="flex items-end justify-center w-44 h-10"
-                                    >
-                                      {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
-                                        <img src={fieldValues[field.id]} alt="Signature" className="max-h-10 max-w-full object-contain" />
-                                      ) : (
-                                        <span
-                                          className="text-lg whitespace-nowrap"
-                                          style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}
-                                        >
-                                          {fieldValues[field.id]}
-                                        </span>
-                                      )}
+                                <div className="relative w-72">
+                                  <div className="flex items-center">
+                                    <div className="text-sm text-gray-700 font-medium mr-3">Signature:</div>
+                                    <div className="relative flex-1 h-10" style={{ minWidth: '220px' }}>
+                                      {/* Dashed line centered vertically */}
+                                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-b border-dashed border-gray-400"></div>
+                                      {/* Signature with bottom edge touching the dashed line */}
+                                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full">
+                                        <div className="flex items-center justify-center" style={{ transform: 'scale(2.2)', transformOrigin: 'center bottom' }}>
+                                          {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
+                                            <img src={fieldValues[field.id]} alt="Signature" className="h-8 max-w-[180px] object-contain" />
+                                          ) : (
+                                            <span className="text-xl whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script', lineHeight: 1, display: 'inline-block' }}>
+                                              {fieldValues[field.id]}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
-                                    {/* horizontal dash line centered under the signature box */}
-                                    <div className="w-24 h-px bg-gray-400 mt-0" />
                                   </div>
-                                </div>
-                                {/* Zoom controls - show on hover */}
-                                <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 bg-white/90 rounded px-2 py-1 shadow-md" style={{ transform: 'translateX(100%)' }}>
-                                  {/* Zoom locked at 220% — controls disabled */}
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); }}
-                                    className="px-2 py-1 text-sm bg-gray-100 opacity-50 cursor-not-allowed rounded"
-                                    title="Zoom locked"
-                                    disabled
-                                  >
-                                    −
-                                  </button>
-                                  <span className="text-xs text-gray-600 px-1">{Math.round(zoomLevel * 100)}%</span>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); }}
-                                    className="px-2 py-1 text-sm bg-gray-100 opacity-50 cursor-not-allowed rounded"
-                                    title="Zoom locked"
-                                    disabled
-                                  >
-                                    +
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); }}
-                                    className="px-2 py-1 text-xs bg-gray-300 text-gray-700 opacity-50 cursor-not-allowed rounded"
-                                    title="Zoom locked"
-                                    disabled
-                                  >
-                                    Reset
-                                  </button>
                                 </div>
                               </>
                             ) : (
-                              // Standard field display with border and labels (for admins and unsigned fields)
                               <>
                                 <div className="flex items-center space-x-2 min-w-[120px]">
                                   {field.type === 'signature' && (
-                                    fieldValues[field.id] ? (
-                                      fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
-                                        <img src={fieldValues[field.id]} alt="Signature" className="h-6 max-w-[80px] object-contain" />
-                                      ) : (
-                                        <span 
-                                          className="text-lg whitespace-nowrap"
-                                          style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}
-                                        >
-                                          {fieldValues[field.id]}
-                                        </span>
-                                      )
-                                    ) : (
-                                      <span className="text-sm font-medium text-red-600 whitespace-nowrap">
-                                        ✍️ Click to Sign
-                                      </span>
-                                    )
+                                    <div className="relative w-72">
+                                      {!fieldValues[field.id] && (
+                                        <div className="absolute left-1/2 transform -translate-x-1/2 -top-6">
+                                          <div className="bg-blue-800 text-white text-sm px-3 py-1 rounded">Sign here</div>
+                                        </div>
+                                      )}
+                                      <div className="flex items-center">
+                                        <div className="text-sm text-gray-700 font-medium mr-3">Signature:</div>
+                                        <div className="flex-1 border-b border-dashed border-gray-400" style={{ minWidth: '220px' }} />
+                                      </div>
+                                      {user?.role === 'admin' && fieldValues[field.id] && (
+                                        <div className="mt-8 flex items-center justify-center">
+                                          {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
+                                            <img src={fieldValues[field.id]} alt="Signature" className="max-h-8 max-w-full object-contain" />
+                                          ) : (
+                                            <span className="text-lg whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}>
+                                              {fieldValues[field.id]}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                   {field.type === 'initial' && (
-                                    fieldValues[field.id] ? 
-                                      <span className="text-lg font-semibold">{fieldValues[field.id]}</span> : 
+                                    fieldValues[field.id] ? (
+                                      <span className="text-lg font-semibold">{fieldValues[field.id]}</span>
+                                    ) : (
                                       <span className="text-sm font-medium text-red-600">Initial</span>
+                                    )
                                   )}
                                   {field.type === 'date' && (
-                                    // Render a labeled date with the date centered above a dashed line
-                                    <div className="flex items-end space-x-4">
-                                      <div className="text-sm text-gray-700 font-medium whitespace-nowrap">Date</div>
-                                      <div className="flex flex-col items-center">
-                                        <div className="text-sm text-gray-800">{fieldValues[field.id] || new Date().toLocaleDateString()}</div>
-                                        <div className="w-48 border-b border-gray-400 border-dashed mt-1" />
+                                    <div
+                                      className="relative w-72"
+                                      onPointerDown={canMove ? ((e) => startDrag(field, e)) : undefined}
+                                      style={{ cursor: canMove ? 'grab' : undefined }}
+                                    >
+                                      <div className="absolute left-1/2 transform -translate-x-1/2 -top-6">
+                                        <div className="text-sm text-gray-800 font-medium">{fieldValues[field.id] || new Date().toLocaleDateString()}</div>
+                                      </div>
+                                      <div className="flex items-center">
+                                        <div className="text-sm text-gray-700 font-medium mr-3">Date:</div>
+                                        <div className="flex-1 border-b border-dashed border-gray-400" style={{ minWidth: '220px' }} />
                                       </div>
                                     </div>
                                   )}
                                   {field.type === 'text' && (
-                                    fieldValues[field.id] ? 
-                                      <span className="text-sm">{fieldValues[field.id]}</span> : 
+                                    fieldValues[field.id] ? (
+                                      <span className="text-sm">{fieldValues[field.id]}</span>
+                                    ) : (
                                       <span className="text-sm font-medium text-red-600">📝 Text</span>
+                                    )
                                   )}
                                   {field.type === 'checkbox' && (
-                                    <input 
-                                      type="checkbox" 
-                                      checked={!!fieldValues[field.id]} 
-                                      readOnly 
-                                      className="h-4 w-4"
-                                    />
+                                    <input type="checkbox" checked={!!fieldValues[field.id]} readOnly className="h-4 w-4" />
                                   )}
                                 </div>
-                                {!isSignerDateField && (
-                                  <div className="text-xs text-gray-500 mt-1 text-center">
-                                    Page {field.page}
-                                  </div>
+                                {!isSignerDateField && field.type !== 'signature' && (
+                                  <div className="text-xs text-gray-500 mt-1 text-center">Page {field.page}</div>
                                 )}
                               </>
                             )}

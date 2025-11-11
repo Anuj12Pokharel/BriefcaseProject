@@ -167,13 +167,22 @@ export default function Prepare() {
 
   // Simple drag state for fields
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
+  const draggingFieldIdRef = useRef<string | null>(null);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isDraggingRef = useRef<boolean>(false);
+  const dragStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragPreviewRef = useRef<HTMLElement | null>(null);
+  const dragInitialRectRef = useRef<{ left: number; top: number }>({ left: 0, top: 0 });
 
   // Only open modal for signature if not dragging.
   // Admins should not open the signature modal here (they only place/assign fields).
   // Non-admin users may open the modal only for fields assigned to them.
   const handleFieldClick = (field: any, e: React.MouseEvent) => {
-    if (draggingFieldId) return;
+    // Prevent click if we were dragging
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     // Non-signature fields: open respective modals (text/date) on click
     if (field.type !== 'signature') {
@@ -199,52 +208,98 @@ export default function Prepare() {
     setTimeout(() => setShowSignatureModal(true), 0);
   };
 
-  // Drag handlers for field boxes
-  // Simple drag for signature fields
-  const handleFieldMouseDown = (field: any, e: React.MouseEvent) => {
-    if (field.type !== 'signature') return;
+  // Drag handlers for field boxes (use pointer events)
+  const handleFieldPointerDown = (e: React.PointerEvent, field: FieldPlacement) => {
+    // Allow admins to drag signature and date fields in Prepare mode
+    if (user?.role !== 'admin') return;
+    if (field.type !== 'signature' && field.type !== 'date') return;
+
     e.stopPropagation();
-    setDraggingFieldId(field.id);
-    const pageEl = pageRef.current;
-    let startX = 0, startY = 0;
-    if (pageEl) {
-      const rect = pageEl.getBoundingClientRect();
-      startX = e.clientX - rect.left;
-      startY = e.clientY - rect.top;
-      dragOffset.current = {
-        x: startX - (rect.width * field.x) / 100,
-        y: startY - (rect.height * field.y) / 100
-      };
-    } else {
-      dragOffset.current = { x: 0, y: 0 };
-    }
-    window.addEventListener('mousemove', handleFieldMouseMove as any);
-    window.addEventListener('mouseup', handleFieldMouseUp as any);
+    e.preventDefault();
+
+  draggingFieldIdRef.current = field.id;
+  setDraggingFieldId(field.id);
+    isDraggingRef.current = false; // Will be set to true if pointer actually moves
+
+    const clientX = e.clientX;
+    const clientY = e.clientY;
+
+    // Store initial pointer position to detect actual drag movement
+    dragStartPosRef.current = { x: clientX, y: clientY };
+
+    // Capture pointer offset inside the field so the field follows smoothly without jumping
+    const fieldElement = e.currentTarget as HTMLElement;
+    const fieldRect = fieldElement.getBoundingClientRect();
+    dragOffset.current = {
+      x: clientX - fieldRect.left,
+      y: clientY - fieldRect.top
+    };
+    // Setup preview element for immediate visual feedback
+    dragPreviewRef.current = fieldElement;
+    dragInitialRectRef.current = { left: fieldRect.left, top: fieldRect.top };
+
+    // Attempt to capture the pointer on the element so we reliably get pointermove/up
+    try { (e.currentTarget as Element).setPointerCapture?.(e.pointerId); } catch (err) {}
+
+    console.log('Start dragging field', field.id, field.type, 'offset', dragOffset.current);
+
+    // Attach global pointer listeners so dragging continues even if pointer leaves the element
+    window.addEventListener('pointermove', handlePointerMove as any);
+    window.addEventListener('pointerup', handlePointerUp as any);
   };
 
-  const handleFieldMouseMove = (e: MouseEvent) => {
-    if (!draggingFieldId) return;
+  const handlePointerMove = (ev: PointerEvent) => {
+    if (!draggingFieldIdRef.current) return;
+
+    // Detect if pointer actually moved (more than 3px) to distinguish drag from click
+    const moved = Math.abs(ev.clientX - dragStartPosRef.current.x) > 3 ||
+                  Math.abs(ev.clientY - dragStartPosRef.current.y) > 3;
+    if (moved) isDraggingRef.current = true;
+
     const pageEl = pageRef.current;
     if (!pageEl) return;
     const rect = pageEl.getBoundingClientRect();
-  let relX = e.clientX - rect.left - dragOffset.current.x;
-  let relY = e.clientY - rect.top - dragOffset.current.y;
-  // Clamp to bounds (allow anywhere in container, including bottom edge)
-  relX = Math.max(0, Math.min(rect.width, relX));
-  // Allow y to reach 100% (bottom edge)
-  relY = Math.max(0, Math.min(rect.height, relY));
-  let x = (relX / rect.width) * 100;
-  let y = (relY / rect.height) * 100;
-  // Clamp y to max 100, but allow field to be visible at bottom
-  y = Math.max(0, Math.min(100, y));
-  setFields(fields.map((f: FieldPlacement) => f.id === draggingFieldId ? { ...f, x, y } : f));
+    let relX = ev.clientX - rect.left - dragOffset.current.x;
+    let relY = ev.clientY - rect.top - dragOffset.current.y;
+    // Clamp to bounds
+    relX = Math.max(0, Math.min(rect.width, relX));
+    relY = Math.max(0, Math.min(rect.height, relY));
+    let x = (relX / rect.width) * 100;
+    let y = (relY / rect.height) * 100;
+    y = Math.max(0, Math.min(100, y));
+
+    // Update preview transform for immediate feedback
+    try {
+      if (dragPreviewRef.current) {
+        const dx = ev.clientX - dragStartPosRef.current.x;
+        const dy = ev.clientY - dragStartPosRef.current.y;
+        dragPreviewRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+        dragPreviewRef.current.style.transition = 'transform 0s';
+      }
+    } catch (err) {}
+
+    // Log to trace live coordinates
+    // console.log('drag move ->', draggingFieldIdRef.current, x.toFixed(2), y.toFixed(2));
+    const activeId = draggingFieldIdRef.current;
+    setFields((prev: FieldPlacement[]) => prev.map((f: FieldPlacement) => f.id === activeId ? { ...f, x, y } : f));
   };
 
-  const handleFieldMouseUp = () => {
+  const handlePointerUp = (ev?: PointerEvent) => {
+    // End drag; avoid reading the possibly-stale `fields` variable here
+    console.log('End dragging. draggingFieldId:', draggingFieldIdRef.current);
+    draggingFieldIdRef.current = null;
     setDraggingFieldId(null);
-    window.removeEventListener('mousemove', handleFieldMouseMove as any);
-    window.removeEventListener('mouseup', handleFieldMouseUp as any);
+    try {
+      // release pointer capture if previously captured
+      (dragPreviewRef.current as any)?.releasePointerCapture?.(ev?.pointerId);
+    } catch (err) {}
+    window.removeEventListener('pointermove', handlePointerMove as any);
+    window.removeEventListener('pointerup', handlePointerUp as any);
+    // clear any preview transform
+    try { if (dragPreviewRef.current) { dragPreviewRef.current.style.transform = ''; dragPreviewRef.current.style.transition = ''; } } catch (err) {}
   };
+
+  
 
   const handleSaveSignature = (signature: string, type: string, font?: string) => {
     console.log('Saving signature:', { signature, type, font, activeField });
@@ -560,41 +615,61 @@ export default function Prepare() {
                                   ...getFieldPosition(field),
                                   zIndex: 30,
                                   pointerEvents: 'auto',
-                                  cursor: 'pointer',
-                                  transition: draggingFieldId === field.id ? 'transform 0.2s cubic-bezier(0.4,0,0.2,1)' : undefined
+                                  cursor: (user?.role === 'admin' && (field.type === 'signature' || field.type === 'date')) ? (draggingFieldId === field.id ? 'grabbing' : 'grab') : 'pointer',
+                                  transition: draggingFieldId === field.id ? 'transform 0.2s cubic-bezier(0.4,0,0.2,1)' : undefined,
+                                  // Larger padding for easier grabbing
+                                  padding: '16px'
                                 }}
                                 onClick={(e) => handleFieldClick(field, e)}
-                                onMouseDown={(e) => handleFieldMouseDown(field, e)}
-                                className={`px-3 py-2 rounded border bg-white shadow-lg group hover:shadow-xl transition-all duration-200 field-container ${
+                                onPointerDown={(e) => handleFieldPointerDown(e, field)}
+                                className={`rounded border bg-white shadow-lg group hover:shadow-xl transition-all duration-200 field-container ${
                                   field.completed
                                     ? 'border-green-500 bg-green-50'
                                     : 'border-blue-500 border-2 bg-blue-50'
-                                } ${field.type === 'signature' && draggingFieldId === field.id ? 'ring-2 ring-blue-400 cursor-grabbing scale-105' : 'cursor-move'}`}
+                                } ${
+                                  draggingFieldId === field.id ? 'ring-4 ring-blue-500 scale-110 shadow-2xl' : ''
+                                }`}
                               >
                                 <div className="flex items-center space-x-2 min-w-[120px]">
                                   {field.type === 'signature' && (
-                                    fieldValues[field.id] ? (
-                                      fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
-                                        <img src={fieldValues[field.id]} alt="Signature" className="h-6 max-w-[80px] object-contain" />
-                                      ) : (
-                                        <span className="text-lg whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}>
-                                          {fieldValues[field.id]}
-                                        </span>
-                                      )
-                                    ) : (
-                                        <div className="flex flex-col items-start">
-                                          <div className="text-sm font-medium text-gray-800">Signature</div>
-                                          <div className="relative w-44 h-8 mt-1">
-                                            {/* small signature box placed above a horizontal line */}
-                                            <div className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-7 bg-white border border-gray-300 rounded-sm shadow-sm" />
-                                            <div className="absolute left-0 right-0 bottom-1 h-px bg-gray-400" />
-                                          </div>
+                                    // Admin-style signature field: label at left, long dashed underline, small blue 'Sign here' badge above the line
+                                    <div className="relative w-72">
+                                      <div className="absolute left-1/2 transform -translate-x-1/2 -top-6">
+                                        <div className="bg-blue-800 text-white text-sm px-3 py-1 rounded">Sign here</div>
+                                      </div>
+
+                                      <div className="flex items-center">
+                                        <div className="text-sm text-gray-700 font-medium mr-3">Signature:</div>
+                                        <div className="flex-1 border-b border-dashed border-gray-400" style={{ minWidth: '220px' }} />
+                                      </div>
+
+                                      {/* preview (if value exists) shown below the line for admin */}
+                                      {fieldValues[field.id] && (
+                                        <div className="mt-8 flex items-center justify-center">
+                                          {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
+                                            <img src={fieldValues[field.id]} alt="Signature" className="max-h-8 max-w-full object-contain" />
+                                          ) : (
+                                            <span className="text-lg whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script' }}>
+                                              {fieldValues[field.id]}
+                                            </span>
+                                          )}
                                         </div>
-                                    )
+                                      )}
+                                    </div>
                                   )}
                                   {field.type === 'date' && (
                                     fieldValues[field.id] ? (
-                                      <span className="text-sm">{fieldValues[field.id]}</span>
+                                      // Date field with label and dashed line, date value above the line
+                                      <div className="relative w-72">
+                                        <div className="absolute left-1/2 transform -translate-x-1/2 -top-6">
+                                          <div className="text-sm text-gray-800 font-medium">{fieldValues[field.id]}</div>
+                                        </div>
+
+                                        <div className="flex items-center">
+                                          <div className="text-sm text-gray-700 font-medium mr-3">Date:</div>
+                                          <div className="flex-1 border-b border-dashed border-gray-400" style={{ minWidth: '220px' }} />
+                                        </div>
+                                      </div>
                                     ) : (
                                       <span className="text-sm font-medium text-blue-600">📅 {field.type}</span>
                                     )
@@ -607,13 +682,15 @@ export default function Prepare() {
                                     )
                                   )}
                                   <button
+                                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleRemoveField(field.id);
                                     }}
-                                    className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 ml-2 transition-opacity"
+                                    className="absolute top-1 right-1 z-50 flex items-center justify-center w-6 h-6 bg-white border border-gray-300 rounded-full shadow-sm text-gray-600 hover:text-red-600 hover:border-red-400"
+                                    title="Remove field"
                                   >
-                                    <X className="h-4 w-4" />
+                                    <X className="h-3.5 w-3.5" />
                                   </button>
                                   {/* Move to Bottom button */}
                                   <button

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react';
 
 export type DocType = 'pdf' | 'image' | null;
 
@@ -27,7 +27,7 @@ export interface DocumentContextType {
   docType: DocType;
   setDocument: (doc: File | string | null, type: DocType) => void;
   fields: FieldPlacement[];
-  setFields: (fields: FieldPlacement[]) => void;
+  setFields: Dispatch<SetStateAction<FieldPlacement[]>>;
   fieldValues: Record<string, any>;
   setFieldValues: (values: Record<string, any>) => void;
   recipients: Recipient[];
