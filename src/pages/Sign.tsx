@@ -490,7 +490,7 @@ export default function Sign() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sticky NEXT button: jumps to next assigned signature and highlights its location (non-admin only) */}
-      {user?.role !== 'admin' && findAssignedSignatures().length > 0 && (
+      {user?.role !== 'admin' && (
         <button
           onClick={handleNextSignature}
           title="Next signature"
@@ -778,9 +778,11 @@ export default function Sign() {
                                       onPointerDown={canMove ? ((e) => startDrag(field, e)) : undefined}
                                       style={{ cursor: canMove ? 'grab' : undefined }}
                                     >
-                                      <div className="absolute left-1/2 transform -translate-x-1/2 -top-6">
-                                        <div className="text-sm text-gray-800 font-medium">{fieldValues[field.id] || new Date().toLocaleDateString()}</div>
-                                      </div>
+                                      {fieldValues[field.id] && (
+                                        <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-full">
+                                          <div className="text-sm text-gray-800 font-medium">{fieldValues[field.id]}</div>
+                                        </div>
+                                      )}
                                       <div className="flex items-center">
                                         <div className="text-sm text-gray-700 font-medium mr-3">Date:</div>
                                         <div className="flex-1 border-b border-dashed border-gray-400" style={{ minWidth: '220px' }} />

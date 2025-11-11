@@ -184,16 +184,21 @@ export default function Prepare() {
       return;
     }
 
-    // Non-signature fields: open respective modals (text/date) on click
+    // Date fields: do NOT open modal on admin/sender side (keep as empty placeholder)
+    if (field.type === 'date') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    // Non-signature fields: open respective modals (text) on click
     if (field.type !== 'signature') {
       e.preventDefault();
       e.stopPropagation();
       setActiveField(field);
       setSignatureModalPos({ x: e.clientX, y: e.clientY + window.scrollY });
       setTimeout(() => {
-        if (field.type === 'date') {
-          setShowDateModal(true);
-        } else if (field.type === 'text') {
+        if (field.type === 'text') {
           setShowTextModal(true);
         }
       }, 0);
@@ -511,7 +516,7 @@ export default function Prepare() {
                         This removes the blue-dot "Signature 1 / 2 / ..." rows shown in the screenshot.
                         Non-admin users still see the full list so they can manage their own fields. */}
                     {fields
-                      .filter((f) => !(user?.role === 'admin' && f.type === 'signature'))
+                      .filter((f) => !(user?.role === 'admin' && (f.type === 'signature' || f.type === 'date')))
                       .map((field, index) => (
                       <div key={field.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
                         <div className="flex items-center space-x-2">
