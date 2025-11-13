@@ -317,12 +317,13 @@ export default function Templates() {
                       >
                         <Eye className="h-4 w-4 text-gray-600" />
                       </button>
-                      <button 
+                      {/* Hide Insert button on this admin Templates page per request */}
+                      {/* <button 
                         onClick={() => insertMessageToUpload(t.body)} 
                         className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 transition-colors"
                       >
                         Insert
-                      </button>
+                      </button> */}
                       <button 
                         onClick={() => navigate('/manage-templates')} 
                         className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-sm hover:bg-gray-200 transition-colors"

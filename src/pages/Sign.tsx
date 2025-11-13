@@ -716,23 +716,31 @@ export default function Sign() {
                             )}
                             {isSignerSignatureField ? (
                               <>
-                                <div className="relative w-72">
+                                <div 
+                                  className="relative w-72 cursor-pointer"
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveField(field);
+                                    setShowSignatureModal(true);
+                                  }}
+                                  title="Double-click to edit signature"
+                                >
                                   <div className="flex items-center">
-                                    <div className="text-sm text-gray-700 font-medium mr-3">Signature:</div>
+                                    <div className="text-sm text-gray-700 font-medium mr-1.5">Signature:</div>
                                     <div className="relative flex-1 h-10" style={{ minWidth: '220px' }}>
                                       {/* Dashed line centered vertically */}
                                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-b border-dashed border-gray-400"></div>
                                       {/* Signature with bottom edge touching the dashed line */}
                                       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full">
-                                        <div className="flex items-center justify-center" style={{ transform: 'scale(2.2)', transformOrigin: 'center bottom' }}>
-                                          {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
+                                        {fieldValues[field.id + '_type'] === 'draw' || fieldValues[field.id + '_type'] === 'upload' ? (
+                                          <div className="flex items-center justify-center" style={{ transform: 'scale(2.2)', transformOrigin: 'center bottom' }}>
                                             <img src={fieldValues[field.id]} alt="Signature" className="h-8 max-w-[180px] object-contain" />
-                                          ) : (
-                                            <span className="text-xl whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script', lineHeight: 1, display: 'inline-block' }}>
-                                              {fieldValues[field.id]}
-                                            </span>
-                                          )}
-                                        </div>
+                                          </div>
+                                        ) : (
+                                          <span className="text-xl whitespace-nowrap" style={{ fontFamily: fieldValues[field.id + '_font'] || 'Dancing Script', lineHeight: 1, display: 'inline-block' }}>
+                                            {fieldValues[field.id]}
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -778,14 +786,16 @@ export default function Sign() {
                                       onPointerDown={canMove ? ((e) => startDrag(field, e)) : undefined}
                                       style={{ cursor: canMove ? 'grab' : undefined }}
                                     >
-                                      {fieldValues[field.id] && (
-                                        <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-full">
-                                          <div className="text-sm text-gray-800 font-medium">{fieldValues[field.id]}</div>
-                                        </div>
-                                      )}
                                       <div className="flex items-center">
-                                        <div className="text-sm text-gray-700 font-medium mr-3">Date:</div>
-                                        <div className="flex-1 border-b border-dashed border-gray-400" style={{ minWidth: '220px' }} />
+                                        <div className="text-sm text-gray-700 font-medium mr-1.5">Date:</div>
+                                        <div className="relative flex-1" style={{ minWidth: '220px' }}>
+                                          {fieldValues[field.id] && (
+                                            <div className="absolute whitespace-nowrap" style={{ left: '0.5in', top: '-20px' }}>
+                                              <div className="text-base text-gray-800 font-medium">{fieldValues[field.id]}</div>
+                                            </div>
+                                          )}
+                                          <div className="w-full border-b border-dashed border-gray-400" />
+                                        </div>
                                       </div>
                                     </div>
                                   )}
