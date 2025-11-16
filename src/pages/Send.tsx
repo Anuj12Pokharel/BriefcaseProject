@@ -9,6 +9,12 @@ export default function Send() {
   const navigate = useNavigate();
   const { uploadedDoc, fields, fieldValues, setFieldValues, recipients, setRecipients } = useDocument();
   const { user } = useAuth();
+  // Sender accounts (company emails) that the sender can choose from
+  const [senders, setSenders] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [selectedSenderId, setSelectedSenderId] = useState<string | null>(null);
+  const [showAddSender, setShowAddSender] = useState(false);
+  const [newSenderName, setNewSenderName] = useState('');
+  const [newSenderEmail, setNewSenderEmail] = useState('');
   const [message, setMessage] = useState('');
   const [editingMessage, setEditingMessage] = useState(false);
   const [expiryDays, setExpiryDays] = useState('30');
@@ -38,6 +44,24 @@ export default function Send() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load sender accounts from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('senders');
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setSenders(parsed);
+        setSelectedSenderId(parsed[0].id);
+      } else if (user?.email) {
+        // seed with logged-in user's email as a default sender option
+        const seed = [{ id: `sender_${Date.now()}`, name: user?.company || user?.name || 'Me', email: user.email }];
+        setSenders(seed);
+        setSelectedSenderId(seed[0].id);
+        localStorage.setItem('senders', JSON.stringify(seed));
+      }
+    } catch (e) {}
+  }, [user]);
+
   // recipients are managed in Upload (DocumentContext). Send shows a read-only summary.
 
   return (
@@ -56,6 +80,61 @@ export default function Send() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-8 mb-6">
           <div className="mb-8">
+            {/* Sender selection added above recipients */}
+            <div className="mb-6">
+              <h3 className="text-md font-semibold text-gray-800 mb-2">Sender</h3>
+              <div className="flex items-center space-x-3">
+                <select
+                  value={selectedSenderId || ''}
+                  onChange={(e) => setSelectedSenderId(e.target.value || null)}
+                  className="px-3 py-2 border border-gray-300 rounded-md w-96"
+                >
+                  {senders.length === 0 && <option value="">(no sender configured)</option>}
+                  {senders.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} — {s.email}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setShowAddSender((v) => !v)}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-md text-sm"
+                >
+                  {showAddSender ? 'Cancel' : 'Add Sender'}
+                </button>
+              </div>
+
+              {showAddSender && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddSender(false)} />
+                  <div className="bg-white rounded-lg p-6 z-10 w-full max-w-md shadow-lg">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Add Sender</h3>
+                    <label className="text-sm text-gray-700 font-medium">Company Name</label>
+                    <input value={newSenderName} onChange={(e) => setNewSenderName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded mt-1 mb-2" />
+                    <label className="text-sm text-gray-700 font-medium">Company Email</label>
+                    <input value={newSenderEmail} onChange={(e) => setNewSenderEmail(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded mt-1 mb-4" />
+                    <div className="flex items-center justify-end space-x-2">
+                      <button onClick={() => {
+                        setShowAddSender(false);
+                        setNewSenderEmail('');
+                        setNewSenderName('');
+                      }} className="px-3 py-1 bg-gray-100 rounded text-sm">Cancel</button>
+                      <button onClick={() => {
+                        // validate
+                        if (!newSenderName.trim() || !newSenderEmail.trim() || !isValidEmail(newSenderEmail.trim())) {
+                          alert('Please enter a valid company name and email');
+                          return;
+                        }
+                        const s = { id: `sender_${Date.now()}`, name: newSenderName.trim(), email: newSenderEmail.trim() };
+                        const updated = [...senders, s];
+                        try { localStorage.setItem('senders', JSON.stringify(updated)); } catch (e) {}
+                        setSenders(updated);
+                        setSelectedSenderId(s.id);
+                        setNewSenderEmail(''); setNewSenderName(''); setShowAddSender(false);
+                      }} className="px-3 py-1 bg-green-600 text-white rounded text-sm">Add Sender</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-4">
                 <h2 className="text-xl font-semibold text-gray-900">Recipients</h2>
@@ -151,6 +230,9 @@ export default function Send() {
               )}
             </div>
           </div>
+
+            {/* Show currently selected sender in recipients header area for clarity */}
+            <div className="mt-4 text-sm text-gray-600">Sending as: <span className="font-medium text-gray-900">{senders.find(s => s.id === selectedSenderId)?.name || '—' } {senders.find(s => s.id === selectedSenderId) ? `(${senders.find(s => s.id === selectedSenderId)?.email})` : ''}</span></div>
 
           <div className="border-t border-gray-200 pt-8 mb-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Message</h2>
@@ -257,6 +339,7 @@ export default function Send() {
                 }
                 // build payload
                 const payload = {
+                  sender: senders.find(s => s.id === selectedSenderId) || null,
                   recipients: recipients,
                   message: message,
                   expiryDays,

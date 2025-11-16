@@ -86,7 +86,8 @@ export default function Prepare() {
       x: 50, // center horizontally
       y: 95, // near bottom (95%)
       completed: false,
-      recipient: selectedRecipientEmail || 'Signer',
+      // Date fields created by the sender should not be bound to a recipient
+      recipient: selectedTool === 'date' ? null : (selectedRecipientEmail || 'Signer'),
       page: currentPage
     };
     // Admins placing a signature should not open the signing modal.
@@ -137,7 +138,8 @@ export default function Prepare() {
       x: x,
       y: y,
       completed: false,
-      recipient: selectedRecipientEmail || 'Signer',
+      // Date fields should not be bound to recipient on the Prepare (sender) side
+      recipient: selectedTool === 'date' ? null : (selectedRecipientEmail || 'Signer'),
       page: currentPage
     };
 
@@ -184,10 +186,21 @@ export default function Prepare() {
       return;
     }
 
-    // Date fields: do NOT open modal on admin/sender side (keep as empty placeholder)
+    // Date fields: open the date picker so sender/admin can pick a date.
     if (field.type === 'date') {
       e.preventDefault();
       e.stopPropagation();
+      setActiveField(field);
+      // If no value present, prefill with today's date for display
+      try {
+        if (!fieldValues[field.id]) {
+          const today = new Date().toLocaleDateString();
+          setFieldValues({ ...fieldValues, [field.id]: today });
+          setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: true } : f));
+        }
+      } catch (err) {}
+      // Open the date picker modal so user can change the date if needed
+      setTimeout(() => setShowDateModal(true), 0);
       return;
     }
 
@@ -379,6 +392,27 @@ export default function Prepare() {
     };
   };
 
+  // Inline helper to render compact date with a dotted line starting after the label.
+  // The date value is centered within the remaining space and vertically aligned
+  // so it appears in the middle of the dashed line.
+  const DateDisplay = ({ value }: { value: string }) => {
+    return (
+      <div className="relative inline-block" style={{ width: 160 }}>
+        <div className="flex items-center">
+          <div className="text-sm text-gray-700 font-medium mr-1">Date</div>
+          <div className="flex-1 relative" style={{ minWidth: 60 }}>
+            {/* dashed line spans the full remaining area */}
+            <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', borderBottom: '1px dashed rgba(209,213,219,1)' }} />
+            {/* date centered in the remaining area, vertically centered on the dashed line */}
+            <div className="flex items-center justify-center" style={{ position: 'relative', height: 0 }}>
+              <div className="text-sm font-medium text-gray-800 px-1 bg-white" style={{ transform: 'translateY(-50%)' }}>{value}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <SignatureModal
@@ -452,19 +486,23 @@ export default function Prepare() {
               <div className="mb-4">
                 <h3 className="text-sm font-semibold text-gray-800 mb-2">Recipients</h3>
                 <div className="max-h-44 overflow-y-auto space-y-2 pr-2 mb-2">
-                  {(recipients || []).map(r => (
-                    <button
-                      key={r.id}
-                      onClick={() => setSelectedRecipientEmail(r.email)}
-                      className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between border ${selectedRecipientEmail === r.email ? 'border-blue-500 bg-blue-50' : 'border-gray-100 bg-white'}`}
-                    >
-                      <div>
-                        <div className="font-medium text-gray-900">{r.name || r.email}</div>
-                        <div className="text-xs text-gray-500">{r.email} • {r.designation || '—'}</div>
-                      </div>
-                      {selectedRecipientEmail === r.email && <div className="text-xs text-blue-600">Selected</div>}
-                    </button>
-                  ))}
+                  {selectedTool === 'date' ? (
+                    <div className="text-sm text-gray-600 italic">Date fields are not assigned to recipients. Recipient selection is disabled while the Date tool is active.</div>
+                  ) : (
+                    (recipients || []).map(r => (
+                      <button
+                        key={r.id}
+                        onClick={() => setSelectedRecipientEmail(r.email)}
+                        className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between border ${selectedRecipientEmail === r.email ? 'border-blue-500 bg-blue-50' : 'border-gray-100 bg-white'}`}
+                      >
+                        <div>
+                          <div className="font-medium text-gray-900">{r.name || r.email}</div>
+                          <div className="text-xs text-gray-500">{r.email} • {r.designation || '—'}</div>
+                        </div>
+                        {selectedRecipientEmail === r.email && <div className="text-xs text-blue-600">Selected</div>}
+                      </button>
+                    ))
+                  )}
                   {(!recipients || recipients.length === 0) && (
                     <div className="text-sm text-gray-500">No recipients defined. Add recipients in Upload first.</div>
                   )}
@@ -622,18 +660,22 @@ export default function Prepare() {
                                   pointerEvents: 'auto',
                                   cursor: (user?.role === 'admin' && (field.type === 'signature' || field.type === 'date')) ? (draggingFieldId === field.id ? 'grabbing' : 'grab') : 'pointer',
                                   transition: draggingFieldId === field.id ? 'transform 0.2s cubic-bezier(0.4,0,0.2,1)' : undefined,
-                                  // Larger padding for easier grabbing
-                                  padding: '16px'
+                                  // Larger padding for easier grabbing, but minimize for filled date fields
+                                  padding: (field.type === 'date' && fieldValues[field.id]) ? '4px 8px' : '16px'
                                 }}
                                 onClick={(e) => handleFieldClick(field, e)}
                                 onPointerDown={(e) => handleFieldPointerDown(e, field)}
-                                className={`rounded border bg-white shadow-lg group hover:shadow-xl transition-all duration-200 field-container ${
-                                  field.completed
-                                    ? 'border-green-500 bg-green-50'
-                                    : 'border-blue-500 border-2 bg-blue-50'
-                                } ${
-                                  draggingFieldId === field.id ? 'ring-4 ring-blue-500 scale-110 shadow-2xl' : ''
-                                }`}
+                                className={
+                                  (field.type === 'date' && fieldValues[field.id])
+                                  ? `rounded bg-transparent border-0 shadow-none transition-all duration-200 field-container ${draggingFieldId === field.id ? 'ring-4 ring-blue-500 scale-110' : ''}`
+                                  : `rounded border bg-white shadow-lg group hover:shadow-xl transition-all duration-200 field-container ${
+                                      field.completed
+                                        ? 'border-green-500 bg-green-50'
+                                        : 'border-blue-500 border-2 bg-blue-50'
+                                    } ${
+                                      draggingFieldId === field.id ? 'ring-4 ring-blue-500 scale-110 shadow-2xl' : ''
+                                    }`
+                                }
                               >
                                 <div className="flex items-center space-x-2 min-w-[120px]">
                                   {field.type === 'signature' && (
@@ -664,17 +706,7 @@ export default function Prepare() {
                                   )}
                                   {field.type === 'date' && (
                                     fieldValues[field.id] ? (
-                                      // Date field with label and dashed line, date value above the line
-                                      <div className="relative w-72">
-                                        <div className="absolute left-1/2 transform -translate-x-1/2 -top-6">
-                                          <div className="text-sm text-gray-800 font-medium">{fieldValues[field.id]}</div>
-                                        </div>
-
-                                        <div className="flex items-center">
-                                          <div className="text-sm text-gray-700 font-medium mr-3">Date:</div>
-                                          <div className="flex-1 border-b border-dashed border-gray-400" style={{ minWidth: '220px' }} />
-                                        </div>
-                                      </div>
+                                      <DateDisplay value={fieldValues[field.id]} />
                                     ) : (
                                       <span className="text-sm font-medium text-blue-600">📅 {field.type}</span>
                                     )
@@ -686,17 +718,19 @@ export default function Prepare() {
                                       <span className="text-sm font-medium text-blue-600">📝 {field.type}</span>
                                     )
                                   )}
-                                  <button
-                                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRemoveField(field.id);
-                                    }}
-                                    className="absolute top-1 right-1 z-50 flex items-center justify-center w-6 h-6 bg-white border border-gray-300 rounded-full shadow-sm text-gray-600 hover:text-red-600 hover:border-red-400"
-                                    title="Remove field"
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
+                                  {!(field.type === 'date' && fieldValues[field.id]) && (
+                                    <button
+                                      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveField(field.id);
+                                      }}
+                                      className="absolute top-1 right-1 z-50 flex items-center justify-center w-6 h-6 bg-white border border-gray-300 rounded-full shadow-sm text-gray-600 hover:text-red-600 hover:border-red-400"
+                                      title="Remove field"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
                                   {/* Move to Bottom button */}
                                   <button
                                     onClick={(e) => {

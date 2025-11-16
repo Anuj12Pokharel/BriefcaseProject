@@ -68,6 +68,8 @@ export default function Sign() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<{[key: number]: HTMLDivElement | null}>({});
   const [activeField, setActiveField] = useState<any>(null);
+  const [datePopupFieldId, setDatePopupFieldId] = useState<string | null>(null);
+  const datePopupRef = useRef<HTMLDivElement | null>(null);
   const [placingSignature, setPlacingSignature] = useState(false);
   const [highlightedFieldId, setHighlightedFieldId] = useState<string | null>(null);
   const [onlyShowFieldId] = useState<string | null>(null);
@@ -155,6 +157,21 @@ export default function Sign() {
     }
   }, [currentPage, numPages]);
 
+  // Close date popup when clicking outside
+  useEffect(() => {
+    const handleDocClick = (e: MouseEvent) => {
+      if (!datePopupFieldId) return;
+      const node = datePopupRef.current;
+      if (!node) return;
+      // If click is outside the popup, close it
+      if (!(e.target instanceof Node) || !node.contains(e.target as Node)) {
+        setDatePopupFieldId(null);
+      }
+    };
+    window.addEventListener('mousedown', handleDocClick);
+    return () => window.removeEventListener('mousedown', handleDocClick);
+  }, [datePopupFieldId]);
+
   const scrollToPage = (pageNum: number) => {
     const targetY = (pageNum - 1) * (PAGE_HEIGHT + PAGE_GAP);
     if (scrollContainerRef.current) {
@@ -186,7 +203,8 @@ export default function Sign() {
     // Admins are allowed special behavior (auto-sign)
     const isAdmin = user?.role === 'admin';
 
-    if (!isAssignedToThis && !isAdmin) {
+    // Allow date fields to be clickable by anyone (not bound to recipient email)
+    if (field.type !== 'date' && !isAssignedToThis && !isAdmin) {
       console.log('Field is not assigned to this signer; ignoring click');
       return;
     }
@@ -211,13 +229,11 @@ export default function Sign() {
       setTimeout(() => setShowInitialModal(true), 0);
     }
     else if (field.type === 'date') {
-      // Auto-fill current date (no date picker) for both sender and signer
-      try {
-        const today = new Date().toLocaleDateString();
-        setFieldValues((prev: any) => ({ ...prev, [field.id]: today }));
-        setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: true } : f));
-      } catch (e) {}
-      setActiveField(null);
+      // Show an inline popup for date (not bound to recipient). Clicking the popup will open the date picker.
+      setActiveField(field);
+      // toggle popup visibility for this field
+      setDatePopupFieldId((prev) => prev === field.id ? null : field.id);
+      return;
     }
     else if (field.type === 'text') {
       setTimeout(() => setShowTextModal(true), 0);
@@ -230,48 +246,48 @@ export default function Sign() {
 
   const handleSaveSignature = (signature: string, type: string, font?: string) => {
     if (activeField) {
-      const newFieldValues = {
-        ...fieldValues,
+      const today = new Date().toLocaleDateString();
+
+      // Save signature value for the active signature field
+      setFieldValues((prev: any) => ({
+        ...prev,
         [activeField.id]: signature,
         [activeField.id + '_type']: type,
         [activeField.id + '_font']: font
-      };
+      }));
 
-      // Auto-fill any uncompleted date fields assigned to this signer with today's date
-      const signerEmail = (currentSignerEmail || user?.email || '').toString().toLowerCase();
-      const today = new Date().toLocaleDateString();
-      (fields || []).forEach((f: any) => {
-        if (f.type === 'date' && !f.completed) {
-          // Check if this date field is assigned to this signer
-          const assignedRecipient = (f.recipient || '').toString();
-          const isAssignedToThis = !assignedRecipient || assignedRecipient === 'Signer' || (
-            signerEmail && assignedRecipient.toLowerCase() === signerEmail.toLowerCase()
-          );
-          if (isAssignedToThis && !newFieldValues[f.id]) {
-            newFieldValues[f.id] = today;
-          }
+      // Mark active field completed and then ensure a date field exists below it
+      setFields((prevFields: any) => {
+        const mapped = prevFields.map((f: any) => f.id === activeField.id ? { ...f, completed: true } : f);
+
+        // Only perform signer-date insertion for non-admin signers
+        if (user?.role === 'admin') return mapped;
+
+        // Look for an existing date field on the same page just below the signature
+        const nearby = prevFields.find((f: any) => f.type === 'date' && f.page === activeField.page && Math.abs((f.x || 0) - (activeField.x || 0)) < 10 && (f.y || 0) >= (activeField.y || 0) && ((f.y || 0) - (activeField.y || 0)) < 6);
+
+        if (nearby) {
+          // If a nearby date field exists, set its value (if empty) and mark completed
+          setFieldValues((prevVals: any) => ({ ...prevVals, [nearby.id]: prevVals[nearby.id] || today }));
+          return mapped.map((f: any) => f.id === nearby.id ? { ...f, completed: true } : f);
         }
+
+        // Otherwise, create a new date field slightly below the signature
+        const newDateField = {
+          id: `field_${Date.now()}`,
+          type: 'date',
+          x: activeField.x,
+          // place slightly below the signature so the date appears under it
+          y: Math.min(98, (activeField.y || 0) + 4),
+          completed: true,
+          recipient: activeField.recipient || currentSignerEmail || user?.email || 'Signer',
+          page: activeField.page
+        } as any;
+
+        setFieldValues((prevVals: any) => ({ ...prevVals, [newDateField.id]: today }));
+        return [...mapped, newDateField];
       });
 
-      setFieldValues(newFieldValues);
-      // compute updated fields so we can check completion and optionally navigate
-      const newFields = fields.map((f: any) => {
-        if (f.id === activeField.id) {
-          return { ...f, completed: true };
-        }
-        // Mark assigned date fields as completed if they were just auto-filled
-        if (f.type === 'date' && !f.completed) {
-          const assignedRecipient = (f.recipient || '').toString();
-          const isAssignedToThis = !assignedRecipient || assignedRecipient === 'Signer' || (
-            signerEmail && assignedRecipient.toLowerCase() === signerEmail.toLowerCase()
-          );
-          if (isAssignedToThis) {
-            return { ...f, completed: true };
-          }
-        }
-        return f;
-      });
-      setFields(newFields);
       setActiveField(null);
     }
 
@@ -785,6 +801,7 @@ export default function Sign() {
                                       className="relative w-72"
                                       onPointerDown={canMove ? ((e) => startDrag(field, e)) : undefined}
                                       style={{ cursor: canMove ? 'grab' : undefined }}
+                                      onClick={(e) => { e.stopPropagation(); /* allow internal handling */ }}
                                     >
                                       <div className="flex items-center">
                                         <div className="text-sm text-gray-700 font-medium mr-1.5">Date:</div>
@@ -797,6 +814,30 @@ export default function Sign() {
                                           <div className="w-full border-b border-dashed border-gray-400" />
                                         </div>
                                       </div>
+
+                                      {/* Inline popup shown after clicking the date field */}
+                                      {datePopupFieldId === field.id && (
+                                        <div ref={datePopupRef} className="absolute left-0 top-full mt-2 bg-white border rounded-md shadow-lg p-3 z-40 w-56">
+                                          <div className="text-sm text-gray-600 mb-2">Selected:</div>
+                                          <div className="flex items-center justify-between mb-2">
+                                            <div className="text-base font-medium text-gray-800">
+                                              {fieldValues[field.id] || new Date().toLocaleDateString()}
+                                            </div>
+                                            <button
+                                              onClick={(ev) => {
+                                                ev.stopPropagation();
+                                                setDatePopupFieldId(null);
+                                                setActiveField(field);
+                                                setTimeout(() => setShowDateModal(true), 0);
+                                              }}
+                                              className="px-2 py-1 text-sm bg-blue-600 text-white rounded-md"
+                                            >
+                                              Edit
+                                            </button>
+                                          </div>
+                                          <div className="text-xs text-gray-500">Click Edit to open the date picker</div>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                   {field.type === 'text' && (
@@ -1016,6 +1057,28 @@ export default function Sign() {
           setActiveField(null);
         }}
         onSave={handleSaveDate}
+        defaultDate={(() => {
+          try {
+            if (activeField && fieldValues && fieldValues[activeField.id]) {
+              const v = fieldValues[activeField.id];
+              if (v instanceof Date) return v;
+              const parsed = Date.parse(String(v));
+              if (!isNaN(parsed)) return new Date(parsed);
+              // handle common formats MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD
+              const m = String(v).trim();
+              const parts = m.split(/[-\/]/);
+              if (parts.length === 3) {
+                // if first part looks like year (4 digits)
+                if (parts[0].length === 4) {
+                  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                }
+                // assume MM/DD/YYYY
+                return new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
+              }
+            }
+          } catch (e) {}
+          return new Date();
+        })()}
       />
     </div>
   );
