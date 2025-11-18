@@ -807,11 +807,26 @@ export default function Sign() {
                                         <div className="text-sm text-gray-700 font-medium mr-1.5">Date:</div>
                                         <div className="relative flex-1" style={{ minWidth: '220px' }}>
                                           {fieldValues[field.id] && (
-                                            <div className="absolute whitespace-nowrap" style={{ left: '0.5in', top: '-20px' }}>
+                                            // Center the displayed date above the shortened dashed line for signer view
+                                            <div
+                                              className="absolute whitespace-nowrap"
+                                              style={{ left: isSignerDateField ? '50%' : '0.25in', top: isSignerDateField ? '-18px' : '-16px', transform: isSignerDateField ? 'translateX(-50%)' : undefined }}
+                                            >
                                               <div className="text-base text-gray-800 font-medium">{fieldValues[field.id]}</div>
                                             </div>
                                           )}
-                                          <div className="w-full border-b border-dashed border-gray-400" />
+                                          {/* Shorten dashed underline for signer-side date fields and lower it slightly
+                                              so it sits just under the displayed date. Center the line when shortened. */}
+                                          <div
+                                            className="border-b border-dashed border-gray-400"
+                                            style={{
+                                              position: 'absolute',
+                                              left: isSignerDateField ? '50%' : 0,
+                                              top: '50%',
+                                              transform: isSignerDateField ? 'translateX(-50%) translateY(8px)' : 'translateY(8px)',
+                                              width: isSignerDateField ? '60%' : '100%'
+                                            }}
+                                          />
                                         </div>
                                       </div>
 

@@ -186,12 +186,13 @@ export default function Prepare() {
       return;
     }
 
-    // Date fields: open the date picker so sender/admin can pick a date.
+    // Date fields: single-click should auto-fill today's date (sender/admin) and NOT open the editor.
+    // Double-click will open the date editor for manual changes.
     if (field.type === 'date') {
       e.preventDefault();
       e.stopPropagation();
       setActiveField(field);
-      // If no value present, prefill with today's date for display
+      // If no value present, prefill with today's date for display but do NOT open editor on single click
       try {
         if (!fieldValues[field.id]) {
           const today = new Date().toLocaleDateString();
@@ -199,8 +200,6 @@ export default function Prepare() {
           setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: true } : f));
         }
       } catch (err) {}
-      // Open the date picker modal so user can change the date if needed
-      setTimeout(() => setShowDateModal(true), 0);
       return;
     }
 
@@ -405,7 +404,7 @@ export default function Prepare() {
             <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', borderBottom: '1px dashed rgba(209,213,219,1)' }} />
             {/* date centered in the remaining area, vertically centered on the dashed line */}
             <div className="flex items-center justify-center" style={{ position: 'relative', height: 0 }}>
-              <div className="text-sm font-medium text-gray-800 px-1 bg-white" style={{ transform: 'translateY(-50%)' }}>{value}</div>
+              <div className="text-sm font-medium text-gray-800 px-1 bg-transparent" style={{ transform: 'translateY(-50%)' }}>{value}</div>
             </div>
           </div>
         </div>
@@ -443,6 +442,7 @@ export default function Prepare() {
           setActiveField(null);
         }}
         onSave={handleSaveDate}
+        defaultDate={(activeField && fieldValues[activeField.id]) ? new Date(fieldValues[activeField.id]) : undefined}
       />
       {/* Admin field popup shown after admin places or clicks a signature field */}
       
@@ -664,6 +664,14 @@ export default function Prepare() {
                                   padding: (field.type === 'date' && fieldValues[field.id]) ? '4px 8px' : '16px'
                                 }}
                                 onClick={(e) => handleFieldClick(field, e)}
+                                onDoubleClick={(e) => {
+                                  if (field.type === 'date') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setActiveField(field);
+                                    setTimeout(() => setShowDateModal(true), 0);
+                                  }
+                                }}
                                 onPointerDown={(e) => handleFieldPointerDown(e, field)}
                                 className={
                                   (field.type === 'date' && fieldValues[field.id])
@@ -706,7 +714,28 @@ export default function Prepare() {
                                   )}
                                   {field.type === 'date' && (
                                     fieldValues[field.id] ? (
-                                      <DateDisplay value={fieldValues[field.id]} />
+                                      <div className="relative inline-block">
+                                        <DateDisplay value={fieldValues[field.id]} />
+                                        <button
+                                          onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            // Close date modal if open and clear active field
+                                            setShowDateModal(false);
+                                            setActiveField(null);
+                                            // Clear the date value but keep the field in place
+                                            const newFieldValues = { ...fieldValues };
+                                            delete newFieldValues[field.id];
+                                            setFieldValues(newFieldValues);
+                                            setFields(fields.map((f: any) => f.id === field.id ? { ...f, completed: false } : f));
+                                          }}
+                                          title="Clear date"
+                                          className="absolute top-1 right-1 bg-white rounded-full w-6 h-6 flex items-center justify-center text-gray-600 hover:text-red-600 border border-gray-200 shadow-sm"
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      </div>
                                     ) : (
                                       <span className="text-sm font-medium text-blue-600">📅 {field.type}</span>
                                     )
